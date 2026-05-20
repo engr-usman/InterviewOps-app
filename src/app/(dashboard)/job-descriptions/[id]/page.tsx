@@ -1,0 +1,137 @@
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
+
+import { getServerAuthSession } from "@/auth";
+import { PageHeader } from "@/components/layout/page-header";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { prisma } from "@/lib/prisma";
+
+function formatDateTime(value: Date) {
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(value);
+}
+
+export default async function JobDescriptionDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const session = await getServerAuthSession();
+  if (!session) redirect("/login");
+
+  const { id } = await params;
+
+  const jd = await prisma.jobDescription.findFirst({
+    where: {
+      id,
+      createdById: session.user.id,
+    },
+    select: {
+      id: true,
+      title: true,
+      department: true,
+      location: true,
+      seniorityLevel: true,
+      descriptionText: true,
+      requirementsText: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  if (!jd) notFound();
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <PageHeader title={jd.title} description="Job description context for interview prep." />
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline">
+            <Link href="/job-descriptions">Back to Job Descriptions</Link>
+          </Button>
+          <Button asChild>
+            <Link href={`/job-descriptions/${jd.id}/edit`}>Edit Job Description</Link>
+          </Button>
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Overview</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <div className="text-muted-foreground">Department</div>
+            <div>{jd.department ?? "—"}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Location</div>
+            <div>{jd.location ?? "—"}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Seniority level</div>
+            <div>{jd.seniorityLevel ?? "—"}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Created</div>
+            <div>{formatDateTime(jd.createdAt)}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Updated</div>
+            <div>{formatDateTime(jd.updatedAt)}</div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Description</CardTitle>
+        </CardHeader>
+        <CardContent className="whitespace-pre-wrap text-sm">{jd.descriptionText}</CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Requirements</CardTitle>
+        </CardHeader>
+        <CardContent className="whitespace-pre-wrap text-sm text-muted-foreground">
+          {jd.requirementsText ? jd.requirementsText : "—"}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Parsed JD</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          Parsed job description output will appear here after JD parsing is enabled.
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Required skills</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          Skill requirements will appear here after skills are linked to the job description.
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Related interviews</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          Interviews associated with this job description will appear here.
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+

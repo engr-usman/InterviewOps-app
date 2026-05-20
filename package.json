@@ -9,8 +9,10 @@
     "start": "next start",
     "lint": "eslint .",
     "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:studio": "prisma studio",
+    "prisma:seed": "prisma db seed",
     "seed": "prisma db seed"
   },
   "dependencies": {

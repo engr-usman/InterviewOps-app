@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
+import { UserRole } from "@prisma/client";
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { getServerSession } from "next-auth/next";
@@ -51,14 +52,14 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     jwt: async ({ token, user }) => {
       if (user) {
-        token.role = (user as { role?: "ADMIN" | "USER" }).role;
+        token.role = (user as { role?: UserRole }).role;
       }
       return token;
     },
     session: async ({ session, token }) => {
       if (session.user) {
         session.user.id = token.sub ?? "";
-        session.user.role = (token.role as "ADMIN" | "USER" | undefined) ?? "USER";
+        session.user.role = (token.role as UserRole | undefined) ?? UserRole.INTERVIEWER;
       }
       return session;
     },

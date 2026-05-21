@@ -1,0 +1,206 @@
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
+
+import { getServerAuthSession } from "@/auth";
+import { PageHeader } from "@/components/layout/page-header";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { prisma } from "@/lib/prisma";
+
+function formatDateTime(value: Date) {
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(value);
+}
+
+export default async function InterviewDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const session = await getServerAuthSession();
+  if (!session) redirect("/login");
+
+  const { id } = await params;
+
+  const interview = await prisma.interview.findFirst({
+    where: { id, createdById: session.user.id },
+    select: {
+      id: true,
+      status: true,
+      scheduledStartAt: true,
+      scheduledEndAt: true,
+      meetingUrl: true,
+      notesText: true,
+      createdAt: true,
+      updatedAt: true,
+      candidate: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+          location: true,
+          seniorityLevel: true,
+        },
+      },
+      jobDescription: {
+        select: {
+          id: true,
+          title: true,
+          department: true,
+          location: true,
+          seniorityLevel: true,
+        },
+      },
+    },
+  });
+
+  if (!interview) notFound();
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <PageHeader title="Interview" description="Interview details and placeholders for session artifacts." />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button asChild variant="outline">
+            <Link href="/interviews">Back to Interviews</Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href={`/interviews/${interview.id}/session`}>Start Interview Session</Link>
+          </Button>
+          <Button asChild>
+            <Link href={`/interviews/${interview.id}/edit`}>Edit Interview</Link>
+          </Button>
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Interview</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <div className="text-muted-foreground">Status</div>
+            <div>{interview.status}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Created</div>
+            <div>{formatDateTime(interview.createdAt)}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Scheduled start</div>
+            <div>{interview.scheduledStartAt ? formatDateTime(interview.scheduledStartAt) : "—"}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Scheduled end</div>
+            <div>{interview.scheduledEndAt ? formatDateTime(interview.scheduledEndAt) : "—"}</div>
+          </div>
+          <div className="sm:col-span-2">
+            <div className="text-muted-foreground">Meeting URL</div>
+            <div>
+              {interview.meetingUrl ? (
+                <a className="text-primary underline-offset-4 hover:underline" href={interview.meetingUrl}>
+                  {interview.meetingUrl}
+                </a>
+              ) : (
+                "—"
+              )}
+            </div>
+          </div>
+          <div className="sm:col-span-2">
+            <div className="text-muted-foreground">Notes</div>
+            <div className="whitespace-pre-wrap">{interview.notesText ? interview.notesText : "—"}</div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Candidate summary</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <div className="text-muted-foreground">Name</div>
+            <div>
+              <Link className="text-primary underline-offset-4 hover:underline" href={`/candidates/${interview.candidate.id}`}>
+                {interview.candidate.fullName}
+              </Link>
+            </div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Seniority</div>
+            <div>{interview.candidate.seniorityLevel ?? "—"}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Email</div>
+            <div>{interview.candidate.email ?? "—"}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Location</div>
+            <div>{interview.candidate.location ?? "—"}</div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Job description summary</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <div className="text-muted-foreground">Title</div>
+            <div>
+              <Link
+                className="text-primary underline-offset-4 hover:underline"
+                href={`/job-descriptions/${interview.jobDescription.id}`}
+              >
+                {interview.jobDescription.title}
+              </Link>
+            </div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Seniority</div>
+            <div>{interview.jobDescription.seniorityLevel ?? "—"}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Department</div>
+            <div>{interview.jobDescription.department ?? "—"}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Location</div>
+            <div>{interview.jobDescription.location ?? "—"}</div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Questions</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          Interview questions will be configured in a later step.
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Scorecard</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          Scorecard and evaluation UI will be implemented later.
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Reports</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          Reports will be generated after the interview session is completed.
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+

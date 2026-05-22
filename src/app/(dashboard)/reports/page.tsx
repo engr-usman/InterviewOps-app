@@ -6,13 +6,38 @@ import { getServerAuthSession } from "@/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
+import { getOrgContextOrThrow } from "@/server/services/org-context";
+import { hasPermission } from "@/server/services/rbac";
+
+type Db = {
+  interview: { findMany: (args: unknown) => Promise<unknown> };
+};
 
 export default async function ReportsPage() {
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
 
-  const recentInterviews = await prisma.interview.findMany({
-    where: { createdById: session.user.id },
+  const ctx = await getOrgContextOrThrow(session.user.id);
+  const canViewReports = hasPermission(ctx.role, "reports:view");
+  if (!canViewReports) {
+    return (
+      <div>
+        <PageHeader title="Reports" description="Scorecards, feedback, and reports" />
+        <Card>
+          <CardContent className="p-6 text-sm text-muted-foreground">You do not have permission to view reports.</CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const recentInterviews: Array<{
+    id: string;
+    createdAt: Date;
+    candidate: { fullName: string };
+    jobDescription: { title: string };
+    scorecard: { recommendation: string | null; overallScore: number | null } | null;
+  }> = (await (prisma as unknown as Db).interview.findMany({
+    where: { organizationId: ctx.organization.id },
     orderBy: { createdAt: "desc" },
     take: 10,
     select: {
@@ -22,7 +47,13 @@ export default async function ReportsPage() {
       jobDescription: { select: { title: true } },
       scorecard: { select: { recommendation: true, overallScore: true } },
     },
-  });
+  })) as Array<{
+    id: string;
+    createdAt: Date;
+    candidate: { fullName: string };
+    jobDescription: { title: string };
+    scorecard: { recommendation: string | null; overallScore: number | null } | null;
+  }>;
 
   return (
     <div>

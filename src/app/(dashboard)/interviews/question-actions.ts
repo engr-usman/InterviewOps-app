@@ -5,6 +5,7 @@ import type { Prisma } from "@prisma/client";
 
 import { getServerAuthSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { requireOrgPermission } from "@/server/services/access";
 import {
   addQuestionSchema,
   generateQuestionsSchema,
@@ -12,6 +13,12 @@ import {
 } from "@/features/interviews/interview-question-schema";
 
 type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
+
+type Db = {
+  interview: {
+    findFirst: (args: unknown) => Promise<{ id: string } | null>;
+  };
+};
 
 function shuffle<T>(items: T[]): T[] {
   const arr = items.slice();
@@ -44,19 +51,21 @@ export async function generateInterviewQuestionsAction(
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
+  const ctx = await requireOrgPermission(session.user.id, "interview:manage");
   const parsed = generateQuestionsSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid inputs." };
 
   const values: GenerateQuestionsValues = parsed.data;
 
   try {
-    const createdCount = await prisma.$transaction(async (tx) => {
-      const interview = await tx.interview.findFirst({
-        where: { id: interviewId, createdById: session.user.id },
-        select: { id: true },
-      });
-      if (!interview) throw new Error("Interview not found.");
+    const db = prisma as unknown as Db;
+    const interview = await db.interview.findFirst({
+      where: { id: interviewId, organizationId: ctx.organization.id },
+      select: { id: true },
+    });
+    if (!interview) throw new Error("Interview not found.");
 
+    const createdCount = await prisma.$transaction(async (tx) => {
       const existing = await tx.interviewQuestion.findMany({
         where: { interviewId },
         select: { questionBankId: true },
@@ -125,17 +134,19 @@ export async function addInterviewQuestionFromBankAction(
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
+  const ctx = await requireOrgPermission(session.user.id, "interview:manage");
   const parsed = addQuestionSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid inputs." };
 
   try {
-    const created = await prisma.$transaction(async (tx) => {
-      const interview = await tx.interview.findFirst({
-        where: { id: interviewId, createdById: session.user.id },
-        select: { id: true },
-      });
-      if (!interview) throw new Error("Interview not found.");
+    const db = prisma as unknown as Db;
+    const interview = await db.interview.findFirst({
+      where: { id: interviewId, organizationId: ctx.organization.id },
+      select: { id: true },
+    });
+    if (!interview) throw new Error("Interview not found.");
 
+    const created = await prisma.$transaction(async (tx) => {
       const qb = await tx.questionBank.findUnique({
         where: { id: parsed.data.questionBankId },
         select: { id: true, prompt: true, topic: true, type: true, difficulty: true, tagsJson: true },
@@ -187,14 +198,16 @@ export async function removeInterviewQuestionAction(
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
+  const ctx = await requireOrgPermission(session.user.id, "interview:manage");
   try {
-    await prisma.$transaction(async (tx) => {
-      const interview = await tx.interview.findFirst({
-        where: { id: interviewId, createdById: session.user.id },
-        select: { id: true },
-      });
-      if (!interview) throw new Error("Interview not found.");
+    const db = prisma as unknown as Db;
+    const interview = await db.interview.findFirst({
+      where: { id: interviewId, organizationId: ctx.organization.id },
+      select: { id: true },
+    });
+    if (!interview) throw new Error("Interview not found.");
 
+    await prisma.$transaction(async (tx) => {
       const deleted = await tx.interviewQuestion.deleteMany({
         where: { id: interviewQuestionId, interviewId },
       });

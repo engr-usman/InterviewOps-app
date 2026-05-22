@@ -7,6 +7,14 @@ import { createAiProvider } from "@/lib/ai/provider";
 import { getBooleanSetting, getStringSetting } from "@/server/services/app-settings";
 import { slugifySkillName, uniqueStrings, upsertSkillsByName } from "@/server/services/skill-utils";
 
+type Db = {
+  candidate: { findFirst: (args: unknown) => Promise<{ id: string } | null> };
+};
+
+type TxDb = {
+  candidate: { updateMany: (args: unknown) => Promise<unknown> };
+};
+
 export type ParsedResumeJson = {
   summary?: string;
   yearsOfExperience?: number;
@@ -165,18 +173,19 @@ async function buildResumeJson(rawText: string): Promise<ParsedResumeJson> {
 
 export async function parseAndStoreCandidateResume({
   candidateId,
-  userId,
+  organizationId,
   absoluteFilePath,
 }: {
   candidateId: string;
-  userId: string;
+  organizationId: string;
   absoluteFilePath: string;
 }) {
   const enabled = await getBooleanSetting("resumeParsing.enabled", true);
   if (!enabled) return;
 
-  const candidate = await prisma.candidate.findFirst({
-    where: { id: candidateId, createdById: userId },
+  const db = prisma as unknown as Db;
+  const candidate = await db.candidate.findFirst({
+    where: { id: candidateId, organizationId },
     select: { id: true },
   });
   if (!candidate) throw new Error("Candidate not found.");
@@ -221,8 +230,9 @@ export async function parseAndStoreCandidateResume({
       });
     }
 
-    await tx.candidate.update({
-      where: { id: candidateId },
+    const txDb = tx as unknown as TxDb;
+    await txDb.candidate.updateMany({
+      where: { id: candidateId, organizationId },
       data: { parsedResumeJson: parsedResumeJson as never },
     });
   });

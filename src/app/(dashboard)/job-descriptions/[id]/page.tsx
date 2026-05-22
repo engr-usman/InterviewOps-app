@@ -8,6 +8,40 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
 import { RequirementType, SourceType } from "@prisma/client";
 import { JobDescriptionAiPanel } from "@/features/ai/job-description-ai-panel";
+import { getOrgContextOrThrow } from "@/server/services/org-context";
+
+type JobDescriptionSkillRequirementRow = {
+  requirementType: RequirementType;
+  priority: number;
+  skill: { id: string; name: string };
+};
+
+type JobDescriptionDetailRow = {
+  id: string;
+  title: string;
+  department: string | null;
+  location: string | null;
+  seniorityLevel: string | null;
+  descriptionText: string;
+  requirementsText: string | null;
+  parsedJdJson: unknown;
+  aiMetadataJson: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+  skillRequirements: JobDescriptionSkillRequirementRow[];
+};
+
+type JobDescriptionInterviewRow = {
+  id: string;
+  createdAt: Date;
+  candidate: { id: string; fullName: string; skillMatches: Array<{ skillId: string }> };
+  scorecard: { recommendation: string | null; overallScore: number | null } | null;
+};
+
+type Db = {
+  jobDescription: { findFirst: (args: unknown) => Promise<JobDescriptionDetailRow | null> };
+  interview: { findMany: (args: unknown) => Promise<JobDescriptionInterviewRow[]> };
+};
 
 function formatDateTime(value: Date) {
   return new Intl.DateTimeFormat(undefined, {
@@ -27,12 +61,15 @@ export default async function JobDescriptionDetailPage({
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
 
+  const ctx = await getOrgContextOrThrow(session.user.id);
+
   const { id } = await params;
 
-  const jd = await prisma.jobDescription.findFirst({
+  const db = prisma as unknown as Db;
+  const jd = await db.jobDescription.findFirst({
     where: {
       id,
-      createdById: session.user.id,
+      organizationId: ctx.organization.id,
     },
     select: {
       id: true,
@@ -77,8 +114,8 @@ export default async function JobDescriptionDetailPage({
     .filter((r) => r.requirementType === RequirementType.PREFERRED)
     .map((r) => r.skill.name);
 
-  const jdInterviews = await prisma.interview.findMany({
-    where: { createdById: session.user.id, jobDescriptionId: jd.id },
+  const jdInterviews = await db.interview.findMany({
+    where: { organizationId: ctx.organization.id, jobDescriptionId: jd.id },
     orderBy: { createdAt: "desc" },
     take: 50,
     select: {
@@ -96,9 +133,7 @@ export default async function JobDescriptionDetailPage({
   });
 
   const recCount = jdInterviews.filter((i) => i.scorecard?.recommendation).length;
-  const hireCount = jdInterviews.filter(
-    (i) => i.scorecard?.recommendation === "HIRE" || i.scorecard?.recommendation === "STRONG_HIRE",
-  ).length;
+  const hireCount = jdInterviews.filter((i) => i.scorecard?.recommendation === "HIRE" || i.scorecard?.recommendation === "STRONG_HIRE").length;
   const successRate = recCount === 0 ? null : Math.round((hireCount / recCount) * 100);
 
   const requiredSkillIds = jd.skillRequirements

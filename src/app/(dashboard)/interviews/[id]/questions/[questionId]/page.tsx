@@ -6,6 +6,24 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
+import { getOrgContextOrThrow } from "@/server/services/org-context";
+import { hasPermission } from "@/server/services/rbac";
+
+type Db = {
+  interviewQuestion: {
+    findFirst: (args: unknown) => Promise<{
+      id: string;
+      order: number;
+      topic: string | null;
+      questionText: string;
+      type: string;
+      difficulty: string;
+      tagsJson: unknown;
+      createdAt: Date;
+      updatedAt: Date;
+    } | null>;
+  };
+};
 
 function tagsToString(value: unknown): string {
   if (!Array.isArray(value)) return "";
@@ -21,13 +39,24 @@ export default async function InterviewQuestionDetailPage({
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
 
+  const ctx = await getOrgContextOrThrow(session.user.id);
+  const canConduct = hasPermission(ctx.role, "interview:conduct");
+  if (!canConduct) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-sm text-muted-foreground">You do not have permission to view interview questions.</CardContent>
+      </Card>
+    );
+  }
+
   const { id: interviewId, questionId } = await params;
 
-  const question = await prisma.interviewQuestion.findFirst({
+  const db = prisma as unknown as Db;
+  const question = await db.interviewQuestion.findFirst({
     where: {
       id: questionId,
       interviewId,
-      interview: { createdById: session.user.id },
+      interview: { organizationId: ctx.organization.id },
     },
     select: {
       id: true,
@@ -97,4 +126,3 @@ export default async function InterviewQuestionDetailPage({
     </div>
   );
 }
-

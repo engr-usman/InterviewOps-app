@@ -6,6 +6,7 @@ import type { Prisma } from "@prisma/client";
 
 import { getServerAuthSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { requireOrgPermission } from "@/server/services/access";
 import {
   saveQuestionEvaluationSchema,
   saveScorecardSchema,
@@ -15,6 +16,15 @@ import {
 } from "@/features/interviews/interview-evaluation-schema";
 
 type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
+
+type TxDb = {
+  interviewQuestion: {
+    findFirst: (args: unknown) => Promise<{ id: string } | null>;
+  };
+  interview: {
+    findFirst: (args: unknown) => Promise<{ id: string; questions: Array<{ evaluation: { score: number | null } | null }> } | null>;
+  };
+};
 
 function nanToUndefined(value: number | undefined): number | undefined {
   if (typeof value !== "number") return undefined;
@@ -57,6 +67,7 @@ export async function saveInterviewQuestionEvaluationAction(
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
+  const ctx = await requireOrgPermission(session.user.id, "interview:conduct");
   const parsed = saveQuestionEvaluationSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid evaluation inputs." };
 
@@ -69,11 +80,12 @@ export async function saveInterviewQuestionEvaluationAction(
 
   try {
     const saved = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const question = await tx.interviewQuestion.findFirst({
+      const db = tx as unknown as TxDb;
+      const question = await db.interviewQuestion.findFirst({
         where: {
           id: interviewQuestionId,
           interviewId,
-          interview: { createdById: session.user.id },
+          interview: { organizationId: ctx.organization.id },
         },
         select: { id: true },
       });
@@ -112,6 +124,7 @@ export async function saveInterviewScorecardAction(
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
+  const ctx = await requireOrgPermission(session.user.id, "interview:conduct");
   const parsed = saveScorecardSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid scorecard inputs." };
 
@@ -131,8 +144,9 @@ export async function saveInterviewScorecardAction(
 
   try {
     const saved = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const interview = await tx.interview.findFirst({
-        where: { id: interviewId, createdById: session.user.id },
+      const db = tx as unknown as TxDb;
+      const interview = await db.interview.findFirst({
+        where: { id: interviewId, organizationId: ctx.organization.id },
         select: {
           id: true,
           questions: {

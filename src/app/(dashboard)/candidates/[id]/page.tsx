@@ -9,6 +9,34 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
 import { computeCandidateVsJobDescriptionMatch } from "@/server/services/match-service";
 import { CandidateAiPanel } from "@/features/ai/candidate-ai-panel";
+import { getOrgContextOrThrow } from "@/server/services/org-context";
+import { hasPermission } from "@/server/services/rbac";
+
+type Db = {
+  candidate: { findFirst: (args: unknown) => Promise<unknown> };
+  interview: { findMany: (args: unknown) => Promise<unknown> };
+};
+
+type CandidateDetailRow = {
+  id: string;
+  fullName: string;
+  email: string | null;
+  phone: string | null;
+  location: string | null;
+  seniorityLevel: string | null;
+  linkedInUrl: string | null;
+  githubUrl: string | null;
+  resumeFileUrl: string | null;
+  resumeFileName: string | null;
+  resumeMimeType: string | null;
+  resumeUploadedAt: Date | null;
+  parsedResumeJson: unknown;
+  aiMetadataJson: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+  skillMatches: Array<{ confidence: number; skill: { name: string } }>;
+  interviews: Array<{ id: string; createdAt: Date; jobDescription: { id: string; title: string } }>;
+};
 
 function formatDateTime(value: Date) {
   return new Intl.DateTimeFormat(undefined, {
@@ -24,12 +52,16 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
 
+  const ctx = await getOrgContextOrThrow(session.user.id);
+  const canManage = hasPermission(ctx.role, "candidate:manage");
+
   const { id } = await params;
 
-  const candidate = await prisma.candidate.findFirst({
+  const db = prisma as unknown as Db;
+  const candidate = (await db.candidate.findFirst({
     where: {
       id,
-      createdById: session.user.id,
+      organizationId: ctx.organization.id,
     },
     select: {
       id: true,
@@ -64,20 +96,25 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
         },
       },
     },
-  });
+  })) as CandidateDetailRow | null;
 
   if (!candidate) notFound();
 
   const uniqueJobDescriptions = Array.from(
-    new Map(candidate.interviews.map((i) => [i.jobDescription.id, i.jobDescription])).values(),
+    new Map<string, { id: string; title: string }>(
+      candidate.interviews.map((i: { jobDescription: { id: string; title: string } }) => [
+        i.jobDescription.id,
+        i.jobDescription,
+      ]),
+    ).values(),
   ).slice(0, 3);
 
   const matchSummaries = await Promise.all(
-    uniqueJobDescriptions.map(async (jd) => {
+    uniqueJobDescriptions.map(async (jd: { id: string; title: string }) => {
       const summary = await computeCandidateVsJobDescriptionMatch({
         candidateId: candidate.id,
         jobDescriptionId: jd.id,
-        userId: session.user.id,
+        organizationId: ctx.organization.id,
       });
       return { jobDescription: jd, summary };
     }),
@@ -97,10 +134,15 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
         projects?: unknown;
       };
 
-  const extractedSkillNames = candidate.skillMatches.map((m) => m.skill.name);
+  const extractedSkillNames = candidate.skillMatches.map((m: { skill: { name: string } }) => m.skill.name);
 
-  const candidateInterviewsWithScore = await prisma.interview.findMany({
-    where: { createdById: session.user.id, candidateId: candidate.id },
+  const candidateInterviewsWithScore: Array<{
+    id: string;
+    createdAt: Date;
+    jobDescription: { title: string };
+    scorecard: { overallScore: number | null; recommendation: string | null } | null;
+  }> = (await db.interview.findMany({
+    where: { organizationId: ctx.organization.id, candidateId: candidate.id },
     orderBy: { createdAt: "desc" },
     take: 20,
     select: {
@@ -109,19 +151,25 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
       scorecard: { select: { overallScore: true, recommendation: true } },
       jobDescription: { select: { title: true } },
     },
-  });
+  })) as Array<{
+    id: string;
+    createdAt: Date;
+    jobDescription: { title: string };
+    scorecard: { overallScore: number | null; recommendation: string | null } | null;
+  }>;
 
   const scoredInterviews = candidateInterviewsWithScore
-    .map((i) => i.scorecard?.overallScore)
-    .filter((s): s is number => typeof s === "number");
+    .map((i: { scorecard: { overallScore: number | null } | null }) => i.scorecard?.overallScore)
+    .filter((s: unknown): s is number => typeof s === "number");
   const candidateAvgScore =
     scoredInterviews.length === 0
       ? null
-      : Math.round((scoredInterviews.reduce((a, b) => a + b, 0) / scoredInterviews.length) * 100) / 100;
+      : Math.round((scoredInterviews.reduce((a: number, b: number) => a + b, 0) / scoredInterviews.length) * 100) / 100;
   const hireCount = candidateInterviewsWithScore.filter(
-    (i) => i.scorecard?.recommendation === "HIRE" || i.scorecard?.recommendation === "STRONG_HIRE",
+    (i: { scorecard: { recommendation: string | null } | null }) =>
+      i.scorecard?.recommendation === "HIRE" || i.scorecard?.recommendation === "STRONG_HIRE",
   ).length;
-  const recCount = candidateInterviewsWithScore.filter((i) => i.scorecard?.recommendation).length;
+  const recCount = candidateInterviewsWithScore.filter((i: { scorecard: { recommendation: string | null } | null }) => i.scorecard?.recommendation).length;
   const candidateHireRate = recCount === 0 ? null : Math.round((hireCount / recCount) * 100);
 
   const topSkills = candidate.skillMatches.slice(0, 6);
@@ -135,9 +183,11 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
           <Button asChild variant="outline">
             <Link href="/candidates">Back to Candidates</Link>
           </Button>
-          <Button asChild>
-            <Link href={`/candidates/${candidate.id}/edit`}>Edit Candidate</Link>
-          </Button>
+          {canManage ? (
+            <Button asChild>
+              <Link href={`/candidates/${candidate.id}/edit`}>Edit Candidate</Link>
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -272,7 +322,7 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
             <div className="text-muted-foreground">No interviews yet.</div>
           ) : (
             <div className="space-y-2">
-              {candidate.interviews.map((i) => (
+              {candidate.interviews.map((i: { id: string; createdAt: Date; jobDescription: { title: string } }) => (
                 <div key={i.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
                   <div>
                     <div className="font-medium">{i.jobDescription.title}</div>
@@ -315,7 +365,7 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
                 {topSkills.length === 0 ? (
                   <div className="text-sm text-muted-foreground">—</div>
                 ) : (
-                  topSkills.map((s) => (
+                  topSkills.map((s: { confidence: number | null; skill: { name: string } }) => (
                     <div key={s.skill.name} className="flex items-center justify-between gap-3">
                       <div className="text-muted-foreground">{s.skill.name}</div>
                       <div className="text-muted-foreground">{typeof s.confidence === "number" ? s.confidence.toFixed(2) : "—"}</div>
@@ -330,7 +380,7 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
                 {bottomSkills.length === 0 ? (
                   <div className="text-sm text-muted-foreground">—</div>
                 ) : (
-                  bottomSkills.map((s) => (
+                  bottomSkills.map((s: { confidence: number | null; skill: { name: string } }) => (
                     <div key={s.skill.name} className="flex items-center justify-between gap-3">
                       <div className="text-muted-foreground">{s.skill.name}</div>
                       <div className="text-muted-foreground">{typeof s.confidence === "number" ? s.confidence.toFixed(2) : "—"}</div>

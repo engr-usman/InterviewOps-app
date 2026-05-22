@@ -1,7 +1,10 @@
+import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
 import { redirect } from "next/navigation";
 
 import { getServerAuthSession } from "@/auth";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SettingsForm } from "@/features/settings/settings-form";
 import { getBooleanSetting, getNumberSetting, getStringSetting } from "@/server/services/app-settings";
 
@@ -25,6 +28,18 @@ export default async function SettingsPage() {
   return (
     <div>
       <PageHeader title="Settings" description="Application configuration" />
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Organization</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center gap-2">
+          <Button asChild variant="outline">
+            <Link href="/settings/team">Team Management</Link>
+          </Button>
+        </CardContent>
+      </Card>
+
       <SettingsForm
         initialValues={{
           aiEnabled,

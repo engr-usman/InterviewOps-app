@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { getServerAuthSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { requireOrgPermission } from "@/server/services/access";
 import {
   candidateFormInputSchema,
   normalizeCandidateFormValues,
@@ -12,19 +13,31 @@ import {
 
 type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
+type Db = {
+  candidate: {
+    create: (args: unknown) => Promise<{ id: string }>;
+    updateMany: (args: unknown) => Promise<{ count: number }>;
+    deleteMany: (args: unknown) => Promise<{ count: number }>;
+  };
+};
+
+const db = prisma as unknown as Db;
+
 export async function createCandidateAction(
   input: CandidateFormInputValues,
 ): Promise<ActionResult<{ id: string }>> {
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
+  const ctx = await requireOrgPermission(session.user.id, "candidate:manage");
   const parsed = candidateFormInputSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid form data." };
   const values = normalizeCandidateFormValues(parsed.data);
 
-  const candidate = await prisma.candidate.create({
+  const candidate = await db.candidate.create({
     data: {
       createdById: session.user.id,
+      organizationId: ctx.organization.id,
       fullName: values.fullName,
       email: values.email,
       phone: values.phone,
@@ -47,14 +60,15 @@ export async function updateCandidateAction(
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
+  const ctx = await requireOrgPermission(session.user.id, "candidate:manage");
   const parsed = candidateFormInputSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid form data." };
   const values = normalizeCandidateFormValues(parsed.data);
 
-  const updated = await prisma.candidate.updateMany({
+  const updated = await db.candidate.updateMany({
     where: {
       id,
-      createdById: session.user.id,
+      organizationId: ctx.organization.id,
     },
     data: {
       fullName: values.fullName,
@@ -78,10 +92,11 @@ export async function deleteCandidateAction(id: string): Promise<ActionResult<{ 
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
-  const deleted = await prisma.candidate.deleteMany({
+  const ctx = await requireOrgPermission(session.user.id, "candidate:manage");
+  const deleted = await db.candidate.deleteMany({
     where: {
       id,
-      createdById: session.user.id,
+      organizationId: ctx.organization.id,
     },
   });
 

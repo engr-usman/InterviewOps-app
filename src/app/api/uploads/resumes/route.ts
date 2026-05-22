@@ -5,7 +5,15 @@ import path from "node:path";
 import { getServerAuthSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getNumberSetting } from "@/server/services/app-settings";
+import { requireOrgPermission } from "@/server/services/access";
 import { parseAndStoreCandidateResume } from "@/server/services/resume-service";
+
+type Db = {
+  candidate: {
+    findFirst: (args: unknown) => Promise<{ id: string } | null>;
+    updateMany: (args: unknown) => Promise<{ count: number }>;
+  };
+};
 
 const allowedExtensions = [".pdf", ".doc", ".docx"] as const;
 const allowedMimeTypes = [
@@ -31,6 +39,7 @@ export async function POST(req: Request) {
   const session = await getServerAuthSession();
   if (!session?.user?.id) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
 
+  const ctx = await requireOrgPermission(session.user.id, "candidate:manage");
   const maxBytes = await getNumberSetting("uploads.maxResumeBytes", 5 * 1024 * 1024);
 
   let formData: FormData;
@@ -68,8 +77,9 @@ export async function POST(req: Request) {
     );
   }
 
-  const candidate = await prisma.candidate.findFirst({
-    where: { id: candidateId, createdById: session.user.id },
+  const db = prisma as unknown as Db;
+  const candidate = await db.candidate.findFirst({
+    where: { id: candidateId, organizationId: ctx.organization.id },
     select: { id: true },
   });
   if (!candidate) return NextResponse.json({ ok: false, error: "Candidate not found." }, { status: 404 });
@@ -85,19 +95,18 @@ export async function POST(req: Request) {
   const bytes = Buffer.from(await file.arrayBuffer());
   await writeFile(absolutePath, bytes);
 
-  await prisma.candidate.update({
-    where: { id: candidateId },
+  await db.candidate.updateMany({
+    where: { id: candidateId, organizationId: ctx.organization.id },
     data: {
       resumeFileUrl: urlPath,
       resumeFileName: originalName,
       resumeMimeType: mimeType,
       resumeUploadedAt: new Date(),
     },
-    select: { id: true },
   });
 
   try {
-    await parseAndStoreCandidateResume({ candidateId, userId: session.user.id, absoluteFilePath: absolutePath });
+    await parseAndStoreCandidateResume({ candidateId, organizationId: ctx.organization.id, absoluteFilePath: absolutePath });
   } catch {
     return NextResponse.json({
       ok: true,
@@ -121,4 +130,3 @@ export async function POST(req: Request) {
     },
   });
 }
-

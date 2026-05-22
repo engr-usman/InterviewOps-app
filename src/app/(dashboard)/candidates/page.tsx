@@ -8,6 +8,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { prisma } from "@/lib/prisma";
 import { CandidateTable, type CandidateListRow } from "@/features/candidates/candidate-table";
+import { getOrgContextOrThrow } from "@/server/services/org-context";
+import { hasPermission } from "@/server/services/rbac";
+
+type Db = {
+  candidate: { findMany: (args: unknown) => Promise<CandidateListRow[]> };
+};
 
 export default async function CandidatesPage({
   searchParams,
@@ -17,6 +23,9 @@ export default async function CandidatesPage({
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
 
+  const ctx = await getOrgContextOrThrow(session.user.id);
+  const canManageCandidates = hasPermission(ctx.role, "candidate:manage");
+
   const { q } = (await searchParams) ?? {};
   const query = q?.trim();
 
@@ -24,9 +33,10 @@ export default async function CandidatesPage({
   let loadError: string | null = null;
 
   try {
-    rows = await prisma.candidate.findMany({
+    const db = prisma as unknown as Db;
+    rows = await db.candidate.findMany({
       where: {
-        createdById: session.user.id,
+        organizationId: ctx.organization.id,
         ...(query
           ? {
               OR: [
@@ -68,9 +78,11 @@ export default async function CandidatesPage({
             Search
           </Button>
         </form>
-        <Button asChild>
-          <Link href="/candidates/new">Add Candidate</Link>
-        </Button>
+        {canManageCandidates ? (
+          <Button asChild>
+            <Link href="/candidates/new">Add Candidate</Link>
+          </Button>
+        ) : null}
       </div>
 
       {loadError ? (
@@ -85,11 +97,15 @@ export default async function CandidatesPage({
               <div className="text-sm text-muted-foreground">
                 Create your first candidate to start building interview sessions.
               </div>
-              <div className="pt-2">
-                <Button asChild>
-                  <Link href="/candidates/new">Add Candidate</Link>
-                </Button>
-              </div>
+              {canManageCandidates ? (
+                <div className="pt-2">
+                  <Button asChild>
+                    <Link href="/candidates/new">Add Candidate</Link>
+                  </Button>
+                </div>
+              ) : (
+                <div className="pt-2 text-sm text-muted-foreground">Ask an admin to create candidates.</div>
+              )}
             </div>
           </CardContent>
         </Card>

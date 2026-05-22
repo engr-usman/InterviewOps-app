@@ -17,12 +17,64 @@ function normalizeTags(value: unknown): string[] {
   return value.filter((t) => typeof t === "string").slice(0, 12) as string[];
 }
 
-export async function generateCandidateAiAnalysis(candidateId: string, userId: string) {
+type Db = {
+  candidate: {
+    findFirst: (args: unknown) => Promise<{ id: string; fullName: string; seniorityLevel: string | null; parsedResumeJson: unknown } | null>;
+    updateMany: (args: unknown) => Promise<{ count: number }>;
+  };
+  jobDescription: {
+    findFirst: (args: unknown) => Promise<{
+      id: string;
+      title: string;
+      seniorityLevel: string | null;
+      descriptionText: string | null;
+      requirementsText: string | null;
+      parsedJdJson: unknown;
+    } | null>;
+    updateMany: (args: unknown) => Promise<{ count: number }>;
+  };
+  interview: {
+    findFirst: (args: unknown) => Promise<AiInterviewRow | AiInsightInterviewRow | AiSummaryInterviewRow | null>;
+  };
+};
+
+type AiInterviewQuestionSeed = { topic: string | null; questionText: string };
+
+type AiInterviewRow = {
+  id: string;
+  candidate: { fullName: string; parsedResumeJson: unknown };
+  jobDescription: { title: string; parsedJdJson: unknown; seniorityLevel: string | null };
+  questions: AiInterviewQuestionSeed[];
+};
+
+type AiInsightInterviewRow = {
+  id: string;
+  candidate: { parsedResumeJson: unknown };
+  jobDescription: { parsedJdJson: unknown };
+  questions: Array<{
+    id: string;
+    topic: string | null;
+    difficulty: DifficultyLevel;
+    questionText: string;
+    evaluation: { score?: number | null; notesText?: string | null; metadataJson?: unknown | null } | null;
+  }>;
+};
+
+type AiSummaryInterviewRow = {
+  id: string;
+  candidate: { fullName: string };
+  jobDescription: { title: string };
+  scorecard: { recommendation: Recommendation | null } | null;
+  questions: Array<{ topic: string | null; questionText: string; evaluation: { score: number | null } | null }>;
+};
+
+export async function generateCandidateAiAnalysis(candidateId: string, organizationId: string) {
   const aiEnabled = await getBooleanSetting("ai.enabled", false);
   if (!aiEnabled) throw new Error("AI features are disabled.");
 
-  const candidate = await prisma.candidate.findFirst({
-    where: { id: candidateId, createdById: userId },
+  const db = prisma as unknown as Db;
+  const candidate = await db.candidate.findFirst({
+    where: { id: candidateId, organizationId },
     select: {
       id: true,
       fullName: true,
@@ -47,27 +99,26 @@ export async function generateCandidateAiAnalysis(candidateId: string, userId: s
   const json = safeJsonParse<Record<string, unknown>>(resp.text);
   if (!json) throw new Error("Invalid AI response.");
 
-  await prisma.candidate.update({
-    where: { id: candidateId },
+  await db.candidate.updateMany({
+    where: { id: candidateId, organizationId },
     data: {
       aiMetadataJson: {
-        ...(typeof candidate === "object" ? {} : {}),
         resumeAnalysis: json,
         provider: resp.provider,
         model: resp.model,
         generatedAt: new Date().toISOString(),
       } as never,
     },
-    select: { id: true },
   });
 }
 
-export async function generateJobDescriptionAiAnalysis(jobDescriptionId: string, userId: string) {
+export async function generateJobDescriptionAiAnalysis(jobDescriptionId: string, organizationId: string) {
   const aiEnabled = await getBooleanSetting("ai.enabled", false);
   if (!aiEnabled) throw new Error("AI features are disabled.");
 
-  const jd = await prisma.jobDescription.findFirst({
-    where: { id: jobDescriptionId, createdById: userId },
+  const db = prisma as unknown as Db;
+  const jd = await db.jobDescription.findFirst({
+    where: { id: jobDescriptionId, organizationId },
     select: {
       id: true,
       title: true,
@@ -92,8 +143,8 @@ export async function generateJobDescriptionAiAnalysis(jobDescriptionId: string,
   const json = safeJsonParse<Record<string, unknown>>(resp.text);
   if (!json) throw new Error("Invalid AI response.");
 
-  await prisma.jobDescription.update({
-    where: { id: jobDescriptionId },
+  await db.jobDescription.updateMany({
+    where: { id: jobDescriptionId, organizationId },
     data: {
       aiMetadataJson: {
         jdAnalysis: json,
@@ -102,7 +153,6 @@ export async function generateJobDescriptionAiAnalysis(jobDescriptionId: string,
         generatedAt: new Date().toISOString(),
       } as never,
     },
-    select: { id: true },
   });
 }
 
@@ -114,21 +164,22 @@ export type GenerateAiQuestionsInput = {
   style?: AiQuestionStyle;
 };
 
-export async function generateAiInterviewQuestions(interviewId: string, userId: string, input: GenerateAiQuestionsInput) {
+export async function generateAiInterviewQuestions(interviewId: string, organizationId: string, input: GenerateAiQuestionsInput) {
   const aiEnabled = await getBooleanSetting("ai.enabled", false);
   if (!aiEnabled) throw new Error("AI features are disabled.");
   const aiQuestionsEnabled = await getBooleanSetting("ai.questions.enabled", false);
   if (!aiQuestionsEnabled) throw new Error("AI-generated questions are disabled.");
 
-  const interview = await prisma.interview.findFirst({
-    where: { id: interviewId, createdById: userId },
+  const db = prisma as unknown as Db;
+  const interview = (await db.interview.findFirst({
+    where: { id: interviewId, organizationId },
     select: {
       id: true,
       candidate: { select: { fullName: true, parsedResumeJson: true } },
       jobDescription: { select: { title: true, parsedJdJson: true, seniorityLevel: true } },
       questions: { select: { questionText: true, topic: true }, orderBy: { order: "asc" } },
     },
-  });
+  })) as AiInterviewRow | null;
   if (!interview) throw new Error("Interview not found.");
 
   const questionBankExamples = await prisma.questionBank.findMany({
@@ -211,17 +262,18 @@ export async function generateAiInterviewQuestions(interviewId: string, userId: 
 export async function suggestFollowUpQuestions({
   interviewId,
   interviewQuestionId,
-  userId,
+  organizationId,
 }: {
   interviewId: string;
   interviewQuestionId: string;
-  userId: string;
+  organizationId: string;
 }) {
   const aiEnabled = await getBooleanSetting("ai.enabled", false);
   if (!aiEnabled) throw new Error("AI features are disabled.");
 
-  const interview = await prisma.interview.findFirst({
-    where: { id: interviewId, createdById: userId },
+  const db = prisma as unknown as Db;
+  const interview = (await db.interview.findFirst({
+    where: { id: interviewId, organizationId },
     select: {
       id: true,
       candidate: { select: { parsedResumeJson: true } },
@@ -237,7 +289,7 @@ export async function suggestFollowUpQuestions({
         },
       },
     },
-  });
+  })) as AiInsightInterviewRow | null;
   if (!interview) throw new Error("Interview not found.");
   const q = interview.questions[0];
   if (!q) throw new Error("Question not found.");
@@ -277,19 +329,20 @@ export async function suggestFollowUpQuestions({
 export async function generateEvaluationInsight({
   interviewId,
   interviewQuestionId,
-  userId,
+  organizationId,
 }: {
   interviewId: string;
   interviewQuestionId: string;
-  userId: string;
+  organizationId: string;
 }) {
   const aiEnabled = await getBooleanSetting("ai.enabled", false);
   if (!aiEnabled) throw new Error("AI features are disabled.");
   const evalEnabled = await getBooleanSetting("ai.evaluation.enabled", false);
   if (!evalEnabled) throw new Error("AI evaluation suggestions are disabled.");
 
-  const interview = await prisma.interview.findFirst({
-    where: { id: interviewId, createdById: userId },
+  const db = prisma as unknown as Db;
+  const interview = (await db.interview.findFirst({
+    where: { id: interviewId, organizationId },
     select: {
       id: true,
       candidate: { select: { parsedResumeJson: true } },
@@ -305,7 +358,7 @@ export async function generateEvaluationInsight({
         },
       },
     },
-  });
+  })) as AiInsightInterviewRow | null;
   if (!interview) throw new Error("Interview not found.");
   const q = interview.questions[0];
   if (!q) throw new Error("Question not found.");
@@ -334,14 +387,15 @@ export async function generateEvaluationInsight({
   return { insight: json, provider: resp.provider, model: resp.model };
 }
 
-export async function generateInterviewSummary(interviewId: string, userId: string) {
+export async function generateInterviewSummary(interviewId: string, organizationId: string) {
   const aiEnabled = await getBooleanSetting("ai.enabled", false);
   if (!aiEnabled) throw new Error("AI features are disabled.");
   const evalEnabled = await getBooleanSetting("ai.evaluation.enabled", false);
   if (!evalEnabled) throw new Error("AI evaluation suggestions are disabled.");
 
-  const interview = await prisma.interview.findFirst({
-    where: { id: interviewId, createdById: userId },
+  const db = prisma as unknown as Db;
+  const interview = (await db.interview.findFirst({
+    where: { id: interviewId, organizationId },
     select: {
       id: true,
       candidate: { select: { fullName: true } },
@@ -356,10 +410,12 @@ export async function generateInterviewSummary(interviewId: string, userId: stri
         },
       },
     },
-  });
+  })) as AiSummaryInterviewRow | null;
   if (!interview) throw new Error("Interview not found.");
 
-  const scores = interview.questions.map((q) => q.evaluation?.score).filter((s): s is number => typeof s === "number");
+  const scores = interview.questions
+    .map((q) => q.evaluation?.score)
+    .filter((s): s is number => typeof s === "number");
   const technicalAverage = scores.length === 0 ? null : Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100;
 
   const ai = await getAiProviderOrThrow();

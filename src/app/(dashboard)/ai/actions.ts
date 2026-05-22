@@ -14,14 +14,25 @@ import {
   generateJobDescriptionAiAnalysis,
   suggestFollowUpQuestions,
 } from "@/server/services/ai-assistant";
+import { hasFeature } from "@/server/services/feature-flags";
+import { requireOrgPermission } from "@/server/services/access";
+import { hasPermission } from "@/server/services/rbac";
 
 type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
+
+type TxDb = {
+  interview: { findFirst: (args: unknown) => Promise<{ id: string } | null> };
+};
 
 export async function generateCandidateAiAnalysisAction(candidateId: string): Promise<ActionResult<{ ok: true }>> {
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
   try {
-    await generateCandidateAiAnalysis(candidateId, session.user.id);
+    const ctx = await requireOrgPermission(session.user.id, "ai:use");
+    const allowed = await hasFeature(ctx.organization.id, "ai");
+    if (!allowed) return { ok: false, error: "This feature is not available on your plan." };
+
+    await generateCandidateAiAnalysis(candidateId, ctx.organization.id);
     revalidatePath(`/candidates/${candidateId}`);
     return { ok: true, data: { ok: true } };
   } catch (error) {
@@ -35,7 +46,11 @@ export async function generateJobDescriptionAiAnalysisAction(
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
   try {
-    await generateJobDescriptionAiAnalysis(jobDescriptionId, session.user.id);
+    const ctx = await requireOrgPermission(session.user.id, "ai:use");
+    const allowed = await hasFeature(ctx.organization.id, "ai");
+    if (!allowed) return { ok: false, error: "This feature is not available on your plan." };
+
+    await generateJobDescriptionAiAnalysis(jobDescriptionId, ctx.organization.id);
     revalidatePath(`/job-descriptions/${jobDescriptionId}`);
     return { ok: true, data: { ok: true } };
   } catch (error) {
@@ -56,12 +71,17 @@ export async function generateAiInterviewQuestionsAction(
   const values: GenerateAiQuestionsValues = parsed.data;
 
   try {
+    const ctx = await requireOrgPermission(session.user.id, "interview:manage");
+    if (!hasPermission(ctx.role, "ai:use")) return { ok: false, error: "Insufficient permissions." };
+    const allowed = await hasFeature(ctx.organization.id, "ai");
+    if (!allowed) return { ok: false, error: "This feature is not available on your plan." };
+
     const focusAreaRaw = (values as unknown as { focusArea?: unknown }).focusArea;
     const difficultyRaw = (values as unknown as { difficulty?: unknown }).difficulty;
     const seniorityRaw = (values as unknown as { seniority?: unknown }).seniority;
     const styleRaw = (values as unknown as { style?: unknown }).style;
 
-    const result = await generateAiInterviewQuestions(interviewId, session.user.id, {
+    const result = await generateAiInterviewQuestions(interviewId, ctx.organization.id, {
       count: values.count,
       focusArea: typeof focusAreaRaw === "string" && focusAreaRaw.trim() !== "" ? focusAreaRaw.trim() : undefined,
       difficulty: typeof difficultyRaw === "string" && difficultyRaw !== "" ? (difficultyRaw as never) : undefined,
@@ -83,10 +103,15 @@ export async function suggestFollowUpQuestionsAction(
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
   try {
+    const ctx = await requireOrgPermission(session.user.id, "interview:conduct");
+    if (!hasPermission(ctx.role, "ai:use")) return { ok: false, error: "Insufficient permissions." };
+    const allowed = await hasFeature(ctx.organization.id, "ai");
+    if (!allowed) return { ok: false, error: "This feature is not available on your plan." };
+
     const result = await suggestFollowUpQuestions({
       interviewId,
       interviewQuestionId,
-      userId: session.user.id,
+      organizationId: ctx.organization.id,
     });
     return { ok: true, data: { followUps: result.followUps } };
   } catch (error) {
@@ -105,9 +130,15 @@ export async function acceptFollowUpQuestionAction(
   if (text.length < 5) return { ok: false, error: "Invalid follow-up question." };
 
   try {
+    const ctx = await requireOrgPermission(session.user.id, "interview:conduct");
+    if (!hasPermission(ctx.role, "ai:use")) return { ok: false, error: "Insufficient permissions." };
+    const allowed = await hasFeature(ctx.organization.id, "ai");
+    if (!allowed) return { ok: false, error: "This feature is not available on your plan." };
+
     const created = await prisma.$transaction(async (tx) => {
-      const interview = await tx.interview.findFirst({
-        where: { id: interviewId, createdById: session.user.id },
+      const db = tx as unknown as TxDb;
+      const interview = await db.interview.findFirst({
+        where: { id: interviewId, organizationId: ctx.organization.id },
         select: { id: true },
       });
       if (!interview) throw new Error("Interview not found.");
@@ -155,7 +186,12 @@ export async function generateEvaluationInsightAction(
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
   try {
-    const result = await generateEvaluationInsight({ interviewId, interviewQuestionId, userId: session.user.id });
+    const ctx = await requireOrgPermission(session.user.id, "interview:conduct");
+    if (!hasPermission(ctx.role, "ai:use")) return { ok: false, error: "Insufficient permissions." };
+    const allowed = await hasFeature(ctx.organization.id, "ai");
+    if (!allowed) return { ok: false, error: "This feature is not available on your plan." };
+
+    const result = await generateEvaluationInsight({ interviewId, interviewQuestionId, organizationId: ctx.organization.id });
     return { ok: true, data: { insight: result.insight } };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Failed to generate AI insight." };
@@ -169,7 +205,12 @@ export async function generateInterviewSummaryAction(
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
   try {
-    const result = await generateInterviewSummary(interviewId, session.user.id);
+    const ctx = await requireOrgPermission(session.user.id, "interview:conduct");
+    if (!hasPermission(ctx.role, "ai:use")) return { ok: false, error: "Insufficient permissions." };
+    const allowed = await hasFeature(ctx.organization.id, "ai");
+    if (!allowed) return { ok: false, error: "This feature is not available on your plan." };
+
+    const result = await generateInterviewSummary(interviewId, ctx.organization.id);
     return { ok: true, data: { summary: result.summary, suggestedRecommendation: result.suggestedRecommendation } };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Failed to generate AI summary." };

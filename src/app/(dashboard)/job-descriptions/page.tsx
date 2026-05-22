@@ -11,6 +11,14 @@ import {
   JobDescriptionTable,
   type JobDescriptionListRow,
 } from "@/features/job-descriptions/job-description-table";
+import { getOrgContextOrThrow } from "@/server/services/org-context";
+import { hasPermission } from "@/server/services/rbac";
+
+type Db = {
+  jobDescription: {
+    findMany: (args: unknown) => Promise<JobDescriptionListRow[]>;
+  };
+};
 
 export default async function JobDescriptionsPage({
   searchParams,
@@ -20,6 +28,9 @@ export default async function JobDescriptionsPage({
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
 
+  const ctx = await getOrgContextOrThrow(session.user.id);
+  const canManage = hasPermission(ctx.role, "jobDescription:manage");
+
   const { q } = (await searchParams) ?? {};
   const query = q?.trim();
 
@@ -27,9 +38,10 @@ export default async function JobDescriptionsPage({
   let loadError: string | null = null;
 
   try {
-    rows = await prisma.jobDescription.findMany({
+    const db = prisma as unknown as Db;
+    rows = await db.jobDescription.findMany({
       where: {
-        createdById: session.user.id,
+        organizationId: ctx.organization.id,
         ...(query
           ? {
               OR: [
@@ -66,9 +78,11 @@ export default async function JobDescriptionsPage({
             Search
           </Button>
         </form>
-        <Button asChild>
-          <Link href="/job-descriptions/new">Add Job Description</Link>
-        </Button>
+        {canManage ? (
+          <Button asChild>
+            <Link href="/job-descriptions/new">Add Job Description</Link>
+          </Button>
+        ) : null}
       </div>
 
       {loadError ? (
@@ -83,11 +97,15 @@ export default async function JobDescriptionsPage({
               <div className="text-sm text-muted-foreground">
                 Create your first job description to start linking interviews to roles.
               </div>
-              <div className="pt-2">
-                <Button asChild>
-                  <Link href="/job-descriptions/new">Add Job Description</Link>
-                </Button>
-              </div>
+              {canManage ? (
+                <div className="pt-2">
+                  <Button asChild>
+                    <Link href="/job-descriptions/new">Add Job Description</Link>
+                  </Button>
+                </div>
+              ) : (
+                <div className="pt-2 text-sm text-muted-foreground">Ask an admin to create job descriptions.</div>
+              )}
             </div>
           </CardContent>
         </Card>

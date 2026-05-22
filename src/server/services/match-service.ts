@@ -2,6 +2,11 @@ import { RequirementType, SourceType } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 
+type Db = {
+  candidate: { findFirst: (args: unknown) => Promise<{ id: string } | null> };
+  jobDescription: { findFirst: (args: unknown) => Promise<{ id: string } | null> };
+};
+
 export type SkillMatchSummary = {
   matchPercentage: number;
   matchedSkills: string[];
@@ -28,20 +33,21 @@ function uniqueLower(values: string[]): string[] {
 export async function computeCandidateVsJobDescriptionMatch({
   candidateId,
   jobDescriptionId,
-  userId,
+  organizationId,
 }: {
   candidateId: string;
   jobDescriptionId: string;
-  userId: string;
+  organizationId: string;
 }): Promise<SkillMatchSummary | null> {
-  const candidate = await prisma.candidate.findFirst({
-    where: { id: candidateId, createdById: userId },
+  const db = prisma as unknown as Db;
+  const candidate = await db.candidate.findFirst({
+    where: { id: candidateId, organizationId },
     select: { id: true },
   });
   if (!candidate) return null;
 
-  const jd = await prisma.jobDescription.findFirst({
-    where: { id: jobDescriptionId, createdById: userId },
+  const jd = await db.jobDescription.findFirst({
+    where: { id: jobDescriptionId, organizationId },
     select: { id: true },
   });
   if (!jd) return null;
@@ -78,4 +84,3 @@ export async function computeCandidateVsJobDescriptionMatch({
 
   return { matchPercentage, matchedSkills, missingSkills, strengths, weaknesses, focusAreas };
 }
-

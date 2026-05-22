@@ -9,6 +9,41 @@ import { prisma } from "@/lib/prisma";
 import { InterviewQuestionTable } from "@/features/interviews/interview-question-table";
 import { InterviewQuestionsManager } from "@/features/interviews/interview-questions-manager";
 import { InterviewAiQuestionsManager } from "@/features/interviews/interview-ai-questions-manager";
+import { getOrgContextOrThrow } from "@/server/services/org-context";
+import { hasPermission } from "@/server/services/rbac";
+import { hasFeature } from "@/server/services/feature-flags";
+
+type Db = {
+  interview: { findFirst: (args: unknown) => Promise<InterviewDetailRow | null> };
+};
+
+type InterviewDetailRow = {
+  id: string;
+  status: string;
+  scheduledStartAt: Date | null;
+  scheduledEndAt: Date | null;
+  meetingUrl: string | null;
+  notesText: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  candidate: {
+    id: string;
+    fullName: string;
+    email: string | null;
+    phone: string | null;
+    location: string | null;
+    seniorityLevel: string | null;
+    aiMetadataJson: unknown;
+  };
+  jobDescription: {
+    id: string;
+    title: string;
+    department: string | null;
+    location: string | null;
+    seniorityLevel: string | null;
+    aiMetadataJson: unknown;
+  };
+};
 
 function formatDateTime(value: Date) {
   return new Intl.DateTimeFormat(undefined, {
@@ -24,10 +59,27 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
 
+  const ctx = await getOrgContextOrThrow(session.user.id);
+  const canConduct = hasPermission(ctx.role, "interview:conduct");
+  const canManage = hasPermission(ctx.role, "interview:manage");
+  const aiAllowed =
+    canManage && hasPermission(ctx.role, "ai:use") ? await hasFeature(ctx.organization.id, "ai") : false;
+
+  if (!canConduct) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Interview" description="Interview details and placeholders for session artifacts." />
+        <Card>
+          <CardContent className="p-6 text-sm text-muted-foreground">You do not have permission to view interviews.</CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const { id } = await params;
 
-  const interview = await prisma.interview.findFirst({
-    where: { id, createdById: session.user.id },
+  const interview = await (prisma as unknown as Db).interview.findFirst({
+    where: { id, organizationId: ctx.organization.id },
     select: {
       id: true,
       status: true,
@@ -63,24 +115,7 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
 
   if (!interview) notFound();
 
-  const [topicsRows, questionBankOptions, interviewQuestions, evaluationScores, scorecard, questionsWithEval] = await Promise.all([
-    prisma.questionBank.findMany({
-      distinct: ["topic"],
-      select: { topic: true },
-      orderBy: { topic: "asc" },
-    }),
-    prisma.questionBank.findMany({
-      orderBy: [{ topic: "asc" }, { createdAt: "desc" }],
-      select: {
-        id: true,
-        topic: true,
-        prompt: true,
-        type: true,
-        difficulty: true,
-        seniorityLevel: true,
-      },
-      take: 1000,
-    }),
+  const [interviewQuestions, evaluationScores, scorecard, questionsWithEval] = await Promise.all([
     prisma.interviewQuestion.findMany({
       where: { interviewId: interview.id },
       orderBy: { order: "asc" },
@@ -116,6 +151,29 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
     }),
   ]);
 
+  const topicsRows = canManage
+    ? await prisma.questionBank.findMany({
+        distinct: ["topic"],
+        select: { topic: true },
+        orderBy: { topic: "asc" },
+      })
+    : [];
+
+  const questionBankOptions = canManage
+    ? await prisma.questionBank.findMany({
+        orderBy: [{ topic: "asc" }, { createdAt: "desc" }],
+        select: {
+          id: true,
+          topic: true,
+          prompt: true,
+          type: true,
+          difficulty: true,
+          seniorityLevel: true,
+        },
+        take: 1000,
+      })
+    : [];
+
   const topics = topicsRows.map((r) => r.topic);
   const scored = evaluationScores.map((e) => e.score).filter((s): s is number => typeof s === "number");
   const technicalAverage = scored.length === 0 ? null : Math.round((scored.reduce((a, b) => a + b, 0) / scored.length) * 100) / 100;
@@ -140,9 +198,11 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
           <Button asChild variant="outline">
             <Link href={`/interviews/${interview.id}/session`}>Start Interview Session</Link>
           </Button>
-          <Button asChild>
-            <Link href={`/interviews/${interview.id}/edit`}>Edit Interview</Link>
-          </Button>
+          {canManage ? (
+            <Button asChild>
+              <Link href={`/interviews/${interview.id}/edit`}>Edit Interview</Link>
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -250,8 +310,10 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
           <CardTitle>Questions</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          <InterviewAiQuestionsManager interviewId={interview.id} />
-          <InterviewQuestionsManager interviewId={interview.id} topics={topics} questionBankOptions={questionBankOptions} />
+          {aiAllowed ? <InterviewAiQuestionsManager interviewId={interview.id} /> : null}
+          {canManage ? (
+            <InterviewQuestionsManager interviewId={interview.id} topics={topics} questionBankOptions={questionBankOptions} />
+          ) : null}
 
           <div className="space-y-2">
             <div className="text-sm font-medium">Current questions</div>

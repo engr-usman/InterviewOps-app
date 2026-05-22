@@ -2,6 +2,28 @@ import { InterviewStatus, QuestionType, Recommendation, RequirementType } from "
 
 import { prisma } from "@/lib/prisma";
 
+type Db = {
+  candidate: { count: (args: unknown) => Promise<number> };
+  interview: {
+    groupBy: (args: unknown) => Promise<unknown>;
+    findMany: (args: unknown) => Promise<unknown>;
+  };
+  evaluationScorecard: {
+    aggregate: (args: unknown) => Promise<unknown>;
+    findMany: (args: unknown) => Promise<unknown>;
+    groupBy: (args: unknown) => Promise<unknown>;
+  };
+  interviewQuestion: {
+    count: (args: unknown) => Promise<number>;
+    groupBy: (args: unknown) => Promise<unknown>;
+  };
+  jobDescriptionSkillRequirement: { findMany: (args: unknown) => Promise<unknown> };
+  interviewQuestionEvaluation: { findMany: (args: unknown) => Promise<unknown> };
+  user: { findMany: (args: unknown) => Promise<Array<{ id: string; name: string | null; email: string | null }>> };
+};
+
+const db = prisma as unknown as Db;
+
 export type DashboardKpis = {
   totalCandidates: number;
   totalInterviews: number;
@@ -124,6 +146,13 @@ export type AdvancedAnalytics = {
   strengthsKeywords: Array<{ keyword: string; count: number }>;
   weaknessesKeywords: Array<{ keyword: string; count: number }>;
   weeklyAverageScore: Array<{ label: string; avgScore: number }>;
+  interviewerActivity: Array<{
+    userId: string;
+    name: string | null;
+    email: string | null;
+    interviews: number;
+    completed: number;
+  }>;
   aiUsage: {
     aiGeneratedQuestions: number;
     followUps: number;
@@ -131,7 +160,7 @@ export type AdvancedAnalytics = {
   };
 };
 
-export async function getDashboardAnalyticsForUser(userId: string): Promise<DashboardAnalytics> {
+export async function getDashboardAnalyticsForOrganization(organizationId: string): Promise<DashboardAnalytics> {
   const now = new Date();
   const start = new Date(now);
   start.setDate(start.getDate() - 7 * 12);
@@ -139,67 +168,92 @@ export async function getDashboardAnalyticsForUser(userId: string): Promise<Dash
 
   const [
     totalCandidates,
-    interviewStatusCounts,
-    avgOverallAgg,
-    scorecardCounts,
+    interviewStatusCountsRaw,
+    avgOverallAggRaw,
+    scorecardCountsRaw,
     aiQuestionsCount,
     totalQuestionsCount,
-    interviewsForTrend,
-    overallScores,
-    recommendationCounts,
-    difficultyTypeCounts,
-    jdSkillReqs,
+    interviewsForTrendRaw,
+    overallScoresRaw,
+    recommendationCountsRaw,
+    difficultyTypeCountsRaw,
+    jdSkillReqsRaw,
   ] = await Promise.all([
-    prisma.candidate.count({ where: { createdById: userId } }),
-    prisma.interview.groupBy({
+    db.candidate.count({ where: { organizationId } }),
+    db.interview.groupBy({
       by: ["status"],
-      where: { createdById: userId },
+      where: { organizationId },
       _count: { _all: true },
     }),
-    prisma.evaluationScorecard.aggregate({
-      where: { interview: { createdById: userId }, overallScore: { not: null } },
+    db.evaluationScorecard.aggregate({
+      where: { interview: { organizationId }, overallScore: { not: null } },
       _avg: { overallScore: true },
     }),
-    prisma.evaluationScorecard.aggregate({
-      where: { interview: { createdById: userId }, recommendation: { not: null } },
+    db.evaluationScorecard.aggregate({
+      where: { interview: { organizationId }, recommendation: { not: null } },
       _count: { _all: true },
     }),
-    prisma.interviewQuestion.count({
-      where: { interview: { createdById: userId }, type: QuestionType.AI_GENERATED },
+    db.interviewQuestion.count({
+      where: { interview: { organizationId }, type: QuestionType.AI_GENERATED },
     }),
-    prisma.interviewQuestion.count({
-      where: { interview: { createdById: userId } },
+    db.interviewQuestion.count({
+      where: { interview: { organizationId } },
     }),
-    prisma.interview.findMany({
-      where: { createdById: userId, createdAt: { gte: start } },
+    db.interview.findMany({
+      where: { organizationId, createdAt: { gte: start } },
       select: { createdAt: true, status: true },
       take: 2000,
       orderBy: { createdAt: "asc" },
     }),
-    prisma.evaluationScorecard.findMany({
-      where: { interview: { createdById: userId }, overallScore: { not: null } },
+    db.evaluationScorecard.findMany({
+      where: { interview: { organizationId }, overallScore: { not: null } },
       select: { overallScore: true },
       take: 2000,
       orderBy: { createdAt: "desc" },
     }),
-    prisma.evaluationScorecard.groupBy({
+    db.evaluationScorecard.groupBy({
       by: ["recommendation"],
-      where: { interview: { createdById: userId }, recommendation: { not: null } },
+      where: { interview: { organizationId }, recommendation: { not: null } },
       _count: { _all: true },
     }),
-    prisma.interviewQuestion.groupBy({
+    db.interviewQuestion.groupBy({
       by: ["difficulty", "type"],
-      where: { interview: { createdById: userId } },
+      where: { interview: { organizationId } },
       _count: { _all: true },
     }),
-    prisma.jobDescriptionSkillRequirement.findMany({
-      where: { jobDescription: { createdById: userId }, requirementType: { in: [RequirementType.REQUIRED, RequirementType.PREFERRED] } },
+    db.jobDescriptionSkillRequirement.findMany({
+      where: {
+        jobDescription: { organizationId },
+        requirementType: { in: [RequirementType.REQUIRED, RequirementType.PREFERRED] },
+      },
       select: { requirementType: true, skill: { select: { name: true } } },
       take: 5000,
     }),
   ]);
 
-  const statusMap = new Map(interviewStatusCounts.map((r) => [r.status, r._count._all]));
+  const interviewStatusCounts = interviewStatusCountsRaw as Array<{
+    status: InterviewStatus;
+    _count: { _all: number };
+  }>;
+  const avgOverallAgg = avgOverallAggRaw as { _avg: { overallScore: number | null } };
+  const scorecardCounts = scorecardCountsRaw as { _count: { _all: number } };
+  const interviewsForTrend = interviewsForTrendRaw as Array<{ createdAt: Date; status: InterviewStatus }>;
+  const overallScores = overallScoresRaw as Array<{ overallScore: number | null }>;
+  const recommendationCounts = recommendationCountsRaw as Array<{
+    recommendation: Recommendation | null;
+    _count: { _all: number };
+  }>;
+  const difficultyTypeCounts = difficultyTypeCountsRaw as Array<{
+    difficulty: unknown;
+    type: QuestionType;
+    _count: { _all: number };
+  }>;
+  const jdSkillReqs = jdSkillReqsRaw as Array<{
+    requirementType: RequirementType;
+    skill: { name: string };
+  }>;
+
+  const statusMap = new Map<InterviewStatus, number>(interviewStatusCounts.map((r) => [r.status, r._count._all]));
   const totalInterviews = Array.from(statusMap.values()).reduce((a, b) => a + b, 0);
   const completedInterviews = statusMap.get(InterviewStatus.COMPLETED) ?? 0;
   const activeInterviews = (statusMap.get(InterviewStatus.IN_PROGRESS) ?? 0) + (statusMap.get(InterviewStatus.SCHEDULED) ?? 0);
@@ -292,36 +346,51 @@ export async function getDashboardAnalyticsForUser(userId: string): Promise<Dash
   };
 }
 
-export async function getAdvancedAnalyticsForUser(userId: string): Promise<AdvancedAnalytics> {
+export async function getAdvancedAnalyticsForOrganization(organizationId: string): Promise<AdvancedAnalytics> {
   const now = new Date();
   const start = new Date(now);
   start.setDate(start.getDate() - 7 * 12);
   start.setHours(0, 0, 0, 0);
 
-  const [pipelineCounts, evalNotes, scorecards, aiCounts] = await Promise.all([
-    prisma.interview.groupBy({
+  const [pipelineCountsRaw, evalNotesRaw, scorecardsRaw, aiCountsRaw, creatorStatusCountsRaw] = await Promise.all([
+    db.interview.groupBy({
       by: ["status"],
-      where: { createdById: userId },
+      where: { organizationId },
       _count: { _all: true },
     }),
-    prisma.interviewQuestionEvaluation.findMany({
-      where: { interviewQuestion: { interview: { createdById: userId } } },
+    db.interviewQuestionEvaluation.findMany({
+      where: { interviewQuestion: { interview: { organizationId } } },
       select: { notesText: true, metadataJson: true },
       orderBy: { updatedAt: "desc" },
       take: 500,
     }),
-    prisma.evaluationScorecard.findMany({
-      where: { interview: { createdById: userId }, overallScore: { not: null }, createdAt: { gte: start } },
+    db.evaluationScorecard.findMany({
+      where: { interview: { organizationId }, overallScore: { not: null }, createdAt: { gte: start } },
       select: { createdAt: true, overallScore: true },
       take: 2000,
       orderBy: { createdAt: "asc" },
     }),
-    prisma.interviewQuestion.groupBy({
+    db.interviewQuestion.groupBy({
       by: ["type"],
-      where: { interview: { createdById: userId } },
+      where: { interview: { organizationId } },
+      _count: { _all: true },
+    }),
+    db.interview.groupBy({
+      by: ["createdById", "status"],
+      where: { organizationId },
       _count: { _all: true },
     }),
   ]);
+
+  const pipelineCounts = pipelineCountsRaw as Array<{ status: InterviewStatus; _count: { _all: number } }>;
+  const evalNotes = evalNotesRaw as Array<{ notesText: string | null; metadataJson: unknown | null }>;
+  const scorecards = scorecardsRaw as Array<{ createdAt: Date; overallScore: number | null }>;
+  const aiCounts = aiCountsRaw as Array<{ type: QuestionType; _count: { _all: number } }>;
+  const creatorStatusCounts = creatorStatusCountsRaw as Array<{
+    createdById: string;
+    status: InterviewStatus;
+    _count: { _all: number };
+  }>;
 
   const pipeline = pipelineCounts.map((p) => ({ status: String(p.status), count: p._count._all }));
 
@@ -368,12 +437,40 @@ export async function getAdvancedAnalyticsForUser(userId: string): Promise<Advan
   const followUps = aiCounts.find((r) => r.type === QuestionType.FOLLOW_UP)?._count._all ?? 0;
   const aiGeneratedPct = totalQuestions === 0 ? null : Math.round((aiGeneratedQuestions / totalQuestions) * 100);
 
+  const creatorIds = Array.from(new Set(creatorStatusCounts.map((r) => r.createdById)));
+  const users: Array<{ id: string; name: string | null; email: string | null }> = creatorIds.length
+    ? await db.user.findMany({
+        where: { id: { in: creatorIds } },
+        select: { id: true, name: true, email: true },
+      })
+    : [];
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const activityMap = new Map<
+    string,
+    { userId: string; name: string | null; email: string | null; interviews: number; completed: number }
+  >();
+  for (const row of creatorStatusCounts) {
+    const base = activityMap.get(row.createdById) ?? {
+      userId: row.createdById,
+      name: userById.get(row.createdById)?.name ?? null,
+      email: userById.get(row.createdById)?.email ?? null,
+      interviews: 0,
+      completed: 0,
+    };
+    base.interviews += row._count._all;
+    if (row.status === InterviewStatus.COMPLETED) base.completed += row._count._all;
+    activityMap.set(row.createdById, base);
+  }
+  const interviewerActivity = Array.from(activityMap.values())
+    .sort((a, b) => b.completed - a.completed || b.interviews - a.interviews)
+    .slice(0, 10);
+
   return {
     pipeline,
     strengthsKeywords,
     weaknessesKeywords,
     weeklyAverageScore,
+    interviewerActivity,
     aiUsage: { aiGeneratedQuestions, followUps, aiGeneratedPct },
   };
 }
-

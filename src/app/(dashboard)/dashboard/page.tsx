@@ -4,13 +4,28 @@ import { redirect } from "next/navigation";
 
 import { getServerAuthSession } from "@/auth";
 import { SimpleBarChart, SimpleMultiLineChart, SimplePieChart, SimpleStackedBarChart } from "@/features/analytics/charts";
-import { getDashboardAnalyticsForUser } from "@/server/services/analytics-service";
+import { getDashboardAnalyticsForOrganization } from "@/server/services/analytics-service";
+import { getOrgContextOrThrow } from "@/server/services/org-context";
+import { hasPermission } from "@/server/services/rbac";
 
 export default async function DashboardPage() {
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
 
-  const analytics = await getDashboardAnalyticsForUser(session.user.id);
+  const ctx = await getOrgContextOrThrow(session.user.id);
+  const canViewAnalytics = hasPermission(ctx.role, "analytics:view");
+  if (!canViewAnalytics) {
+    return (
+      <div>
+        <PageHeader title="Dashboard" description="Hiring intelligence overview for your workspace." />
+        <Card>
+          <CardContent className="p-6 text-sm text-muted-foreground">You do not have permission to view analytics.</CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const analytics = await getDashboardAnalyticsForOrganization(ctx.organization.id);
   const k = analytics.kpis;
 
   return (

@@ -6,6 +6,18 @@ import { createAiProvider } from "@/lib/ai/provider";
 import { getBooleanSetting, getStringSetting } from "@/server/services/app-settings";
 import { slugifySkillName, uniqueStrings, upsertSkillsByName } from "@/server/services/skill-utils";
 
+type Db = {
+  jobDescription: {
+    findFirst: (args: unknown) => Promise<{ id: string; title: string; descriptionText: string | null; requirementsText: string | null } | null>;
+  };
+};
+
+type TxDb = {
+  jobDescription: {
+    updateMany: (args: unknown) => Promise<unknown>;
+  };
+};
+
 export type ParsedJdJson = {
   summary?: string;
   responsibilities: string[];
@@ -122,16 +134,17 @@ async function buildJdJson(title: string, descriptionText: string | null, requir
 
 export async function analyzeAndStoreJobDescription({
   jobDescriptionId,
-  userId,
+  organizationId,
 }: {
   jobDescriptionId: string;
-  userId: string;
+  organizationId: string;
 }) {
   const enabled = await getBooleanSetting("jdAnalysis.enabled", true);
   if (!enabled) return;
 
-  const jd = await prisma.jobDescription.findFirst({
-    where: { id: jobDescriptionId, createdById: userId },
+  const db = prisma as unknown as Db;
+  const jd = await db.jobDescription.findFirst({
+    where: { id: jobDescriptionId, organizationId },
     select: { id: true, title: true, descriptionText: true, requirementsText: true },
   });
   if (!jd) throw new Error("Job description not found.");
@@ -152,8 +165,9 @@ export async function analyzeAndStoreJobDescription({
       .map((n) => idBySlug.get(slugifySkillName(n)))
       .filter((id): id is string => typeof id === "string");
 
-    await tx.jobDescription.update({
-      where: { id: jobDescriptionId },
+    const txDb = tx as unknown as TxDb;
+    await txDb.jobDescription.updateMany({
+      where: { id: jobDescriptionId, organizationId },
       data: { parsedJdJson: parsedJdJson as never },
     });
 
@@ -184,4 +198,3 @@ export async function analyzeAndStoreJobDescription({
     }
   });
 }
-

@@ -12,6 +12,28 @@ enum UserRole {
   INTERVIEWER
 }
 
+enum OrgRole {
+  OWNER
+  ADMIN
+  INTERVIEWER
+  VIEWER
+}
+
+enum PlanCode {
+  FREE
+  PRO
+  TEAM
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+}
+
 enum InterviewStatus {
   DRAFT
   SCHEDULED
@@ -86,18 +108,25 @@ enum ReportType {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String    @unique
-  emailVerified DateTime?
-  image         String?
-  passwordHash  String?
-  role          UserRole  @default(INTERVIEWER)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                   String    @id @default(cuid())
+  name                 String?
+  email                String    @unique
+  emailVerified        DateTime?
+  image                String?
+  passwordHash         String?
+  role                 UserRole  @default(INTERVIEWER)
+  activeOrganizationId String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   accounts Account[]
   sessions Session[]
+
+  activeOrganization         Organization?        @relation(fields: [activeOrganizationId], references: [id], onDelete: SetNull)
+  organizationMemberships    OrganizationMember[] @relation("OrganizationMemberUser")
+  invitedOrganizationMembers OrganizationMember[] @relation("OrganizationMemberInvitedBy")
+  createdOrganizations       Organization[]       @relation("OrganizationCreatedBy")
+  createdInviteTokens        InviteToken[]        @relation("InviteTokenCreatedBy")
 
   createdCandidates      Candidate[]      @relation("CandidateCreatedBy")
   createdJobDescriptions JobDescription[] @relation("JobDescriptionCreatedBy")
@@ -107,6 +136,7 @@ model User {
   updatedSettings        AppSetting[]     @relation("AppSettingUpdatedBy")
 
   @@index([email])
+  @@index([activeOrganizationId])
 }
 
 model Account {
@@ -145,9 +175,112 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
+model Organization {
+  id          String  @id @default(cuid())
+  name        String
+  slug        String  @unique
+  logoUrl     String?
+  industry    String?
+  companySize String?
+  website     String?
+  createdById String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdBy     User                 @relation("OrganizationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  members       OrganizationMember[]
+  subscriptions Subscription[]
+  invites       InviteToken[]
+
+  candidates      Candidate[]
+  jobDescriptions JobDescription[]
+  interviews      Interview[]
+  reports         Report[]
+  users           User[]
+
+  @@index([slug])
+  @@index([createdById])
+}
+
+model OrganizationMember {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  role           OrgRole  @default(INTERVIEWER)
+  invitedById    String?
+  joinedAt       DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation("OrganizationMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy    User?        @relation("OrganizationMemberInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@index([organizationId])
+}
+
+model SubscriptionPlan {
+  id                String   @id @default(cuid())
+  code              PlanCode @unique
+  name              String
+  description       String?
+  priceMonthlyCents Int?
+  featuresJson      Json?
+  limitsJson        Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id                 String             @id @default(cuid())
+  organizationId     String
+  planId             String
+  status             SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  cancelAtPeriodEnd  Boolean            @default(false)
+  metadataJson       Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan         SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([planId])
+}
+
+model InviteToken {
+  id             String   @id @default(cuid())
+  organizationId String
+  email          String
+  role           OrgRole  @default(VIEWER)
+  token          String   @unique
+  expiresAt      DateTime
+  createdById    String?
+  metadataJson   Json?
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?        @relation("InviteTokenCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([email])
+}
+
 model Candidate {
   id             String          @id @default(cuid())
   createdById    String
+  organizationId String?
   fullName       String
   email          String?
   phone          String?
@@ -169,16 +302,19 @@ model Candidate {
   updatedAt DateTime @updatedAt
 
   createdBy    User                  @relation("CandidateCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  organization Organization?         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   interviews   Interview[]
   skillMatches CandidateSkillMatch[]
 
   @@index([email])
   @@index([createdById])
+  @@index([organizationId])
 }
 
 model JobDescription {
   id             String          @id @default(cuid())
   createdById    String
+  organizationId String?
   title          String
   department     String?
   location       String?
@@ -195,10 +331,12 @@ model JobDescription {
   updatedAt DateTime @updatedAt
 
   createdBy         User                             @relation("JobDescriptionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  organization      Organization?                    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   skillRequirements JobDescriptionSkillRequirement[]
   interviews        Interview[]
 
   @@index([createdById])
+  @@index([organizationId])
 }
 
 model Skill {
@@ -263,6 +401,7 @@ model JobDescriptionSkillRequirement {
 model Interview {
   id               String          @id @default(cuid())
   createdById      String
+  organizationId   String?
   candidateId      String
   jobDescriptionId String
   status           InterviewStatus @default(DRAFT)
@@ -280,6 +419,7 @@ model Interview {
   updatedAt DateTime @updatedAt
 
   createdBy      User                 @relation("InterviewCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  organization   Organization?        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   candidate      Candidate            @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   jobDescription JobDescription       @relation(fields: [jobDescriptionId], references: [id], onDelete: Cascade)
   questions      InterviewQuestion[]
@@ -290,6 +430,7 @@ model Interview {
   @@index([candidateId])
   @@index([jobDescriptionId])
   @@index([createdById])
+  @@index([organizationId])
 }
 
 model QuestionBank {
@@ -371,6 +512,7 @@ model EvaluationScorecard {
 model Report {
   id             String     @id @default(cuid())
   interviewId    String
+  organizationId String?
   type           ReportType @default(FEEDBACK)
   title          String
   reportJson     Json
@@ -380,10 +522,12 @@ model Report {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  interview    Interview     @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([interviewId])
   @@index([type])
+  @@index([organizationId])
 }
 
 model Notification {

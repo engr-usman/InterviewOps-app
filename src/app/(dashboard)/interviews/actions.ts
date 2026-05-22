@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { getServerAuthSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { requireOrgPermission } from "@/server/services/access";
 import {
   interviewFormInputSchema,
   normalizeInterviewFormValues,
@@ -12,31 +13,45 @@ import {
 
 type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
+type Db = {
+  candidate: { findFirst: (args: unknown) => Promise<{ id: string } | null> };
+  jobDescription: { findFirst: (args: unknown) => Promise<{ id: string } | null> };
+  interview: {
+    create: (args: unknown) => Promise<{ id: string }>;
+    updateMany: (args: unknown) => Promise<{ count: number }>;
+    deleteMany: (args: unknown) => Promise<{ count: number }>;
+  };
+};
+
+const db = prisma as unknown as Db;
+
 export async function createInterviewAction(
   input: InterviewFormInputValues,
 ): Promise<ActionResult<{ id: string }>> {
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
+  const ctx = await requireOrgPermission(session.user.id, "interview:manage");
   const parsed = interviewFormInputSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid form data." };
   const values = normalizeInterviewFormValues(parsed.data);
 
-  const candidate = await prisma.candidate.findFirst({
-    where: { id: values.candidateId, createdById: session.user.id },
+  const candidate = await db.candidate.findFirst({
+    where: { id: values.candidateId, organizationId: ctx.organization.id },
     select: { id: true },
   });
   if (!candidate) return { ok: false, error: "Candidate not found." };
 
-  const jobDescription = await prisma.jobDescription.findFirst({
-    where: { id: values.jobDescriptionId, createdById: session.user.id },
+  const jobDescription = await db.jobDescription.findFirst({
+    where: { id: values.jobDescriptionId, organizationId: ctx.organization.id },
     select: { id: true },
   });
   if (!jobDescription) return { ok: false, error: "Job description not found." };
 
-  const created = await prisma.interview.create({
+  const created = await db.interview.create({
     data: {
       createdById: session.user.id,
+      organizationId: ctx.organization.id,
       candidateId: values.candidateId,
       jobDescriptionId: values.jobDescriptionId,
       status: values.status,
@@ -59,24 +74,25 @@ export async function updateInterviewAction(
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
+  const ctx = await requireOrgPermission(session.user.id, "interview:manage");
   const parsed = interviewFormInputSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid form data." };
   const values = normalizeInterviewFormValues(parsed.data);
 
-  const candidate = await prisma.candidate.findFirst({
-    where: { id: values.candidateId, createdById: session.user.id },
+  const candidate = await db.candidate.findFirst({
+    where: { id: values.candidateId, organizationId: ctx.organization.id },
     select: { id: true },
   });
   if (!candidate) return { ok: false, error: "Candidate not found." };
 
-  const jobDescription = await prisma.jobDescription.findFirst({
-    where: { id: values.jobDescriptionId, createdById: session.user.id },
+  const jobDescription = await db.jobDescription.findFirst({
+    where: { id: values.jobDescriptionId, organizationId: ctx.organization.id },
     select: { id: true },
   });
   if (!jobDescription) return { ok: false, error: "Job description not found." };
 
-  const updated = await prisma.interview.updateMany({
-    where: { id, createdById: session.user.id },
+  const updated = await db.interview.updateMany({
+    where: { id, organizationId: ctx.organization.id },
     data: {
       candidateId: values.candidateId,
       jobDescriptionId: values.jobDescriptionId,
@@ -99,8 +115,9 @@ export async function deleteInterviewAction(id: string): Promise<ActionResult<{ 
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
-  const deleted = await prisma.interview.deleteMany({
-    where: { id, createdById: session.user.id },
+  const ctx = await requireOrgPermission(session.user.id, "interview:manage");
+  const deleted = await db.interview.deleteMany({
+    where: { id, organizationId: ctx.organization.id },
   });
 
   if (deleted.count === 0) return { ok: false, error: "Interview not found." };

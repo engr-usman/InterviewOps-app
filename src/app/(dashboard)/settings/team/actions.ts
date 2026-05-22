@@ -1,0 +1,111 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import crypto from "node:crypto";
+
+import { getServerAuthSession } from "@/auth";
+import { prisma } from "@/lib/prisma";
+import { requireOrgPermission } from "@/server/services/access";
+import { orgRoleValues, type OrgRole } from "@/server/services/rbac";
+
+type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
+
+type Db = {
+  organizationMember: {
+    findFirst: (args: unknown) => Promise<{ id: string; userId: string; role: string } | null>;
+    update: (args: unknown) => Promise<{ id: string }>;
+    delete: (args: unknown) => Promise<unknown>;
+  };
+  inviteToken: {
+    create: (args: unknown) => Promise<{ id: string }>;
+  };
+};
+
+const db = prisma as unknown as Db;
+
+export async function updateMemberRoleAction(input: { memberId: string; role: OrgRole }): Promise<ActionResult<{ ok: true }>> {
+  const session = await getServerAuthSession();
+  if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
+
+  if (!(orgRoleValues as readonly string[]).includes(input.role)) return { ok: false, error: "Invalid role." };
+
+  try {
+    const ctx = await requireOrgPermission(session.user.id, "team:manage");
+
+    const member = await db.organizationMember.findFirst({
+      where: { id: input.memberId, organizationId: ctx.organization.id },
+      select: { id: true, userId: true, role: true },
+    });
+    if (!member) return { ok: false, error: "Member not found." };
+
+    await db.organizationMember.update({
+      where: { id: member.id },
+      data: { role: input.role },
+      select: { id: true },
+    });
+
+    revalidatePath("/settings/team");
+    return { ok: true, data: { ok: true } };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Failed to update role." };
+  }
+}
+
+export async function removeMemberAction(input: { memberId: string }): Promise<ActionResult<{ ok: true }>> {
+  const session = await getServerAuthSession();
+  if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
+
+  try {
+    const ctx = await requireOrgPermission(session.user.id, "team:manage");
+
+    const member = await db.organizationMember.findFirst({
+      where: { id: input.memberId, organizationId: ctx.organization.id },
+      select: { id: true, userId: true, role: true },
+    });
+    if (!member) return { ok: false, error: "Member not found." };
+
+    if (member.userId === session.user.id) return { ok: false, error: "You cannot remove yourself." };
+    if (member.role === "OWNER") return { ok: false, error: "Remove or change role of owner is not supported yet." };
+
+    await db.organizationMember.delete({ where: { id: member.id } });
+    revalidatePath("/settings/team");
+    return { ok: true, data: { ok: true } };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Failed to remove member." };
+  }
+}
+
+export async function createInviteTokenAction(input: { email: string; role: OrgRole }): Promise<ActionResult<{ inviteUrl: string }>> {
+  const session = await getServerAuthSession();
+  if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
+
+  const email = input.email.trim().toLowerCase();
+  if (!email || !email.includes("@")) return { ok: false, error: "Valid email is required." };
+  if (!(orgRoleValues as readonly string[]).includes(input.role)) return { ok: false, error: "Invalid role." };
+
+  try {
+    const ctx = await requireOrgPermission(session.user.id, "team:manage");
+    const token = crypto.randomBytes(24).toString("hex");
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
+
+    await db.inviteToken.create({
+      data: {
+        organizationId: ctx.organization.id,
+        email,
+        role: input.role,
+        token,
+        expiresAt,
+        createdById: session.user.id,
+      },
+      select: { id: true },
+    });
+
+    const baseUrl = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+    const inviteUrl = `${baseUrl}/invite/${token}`;
+
+    revalidatePath("/settings/team");
+    return { ok: true, data: { inviteUrl } };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Failed to create invite." };
+  }
+}

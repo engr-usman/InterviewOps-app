@@ -10,6 +10,14 @@ import { Input } from "@/components/ui/input";
 import { prisma } from "@/lib/prisma";
 import { InterviewTable, type InterviewListRow } from "@/features/interviews/interview-table";
 import { statusOptions } from "@/features/interviews/interview-schema";
+import { getOrgContextOrThrow } from "@/server/services/org-context";
+import { hasPermission } from "@/server/services/rbac";
+
+type Db = {
+  candidate: { findMany: (args: unknown) => Promise<Array<{ id: string; fullName: string }>> };
+  jobDescription: { findMany: (args: unknown) => Promise<Array<{ id: string; title: string; seniorityLevel: SeniorityLevel | null }>> };
+  interview: { findMany: (args: unknown) => Promise<InterviewListRow[]> };
+};
 
 function asEnum<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined {
   if (!value) return undefined;
@@ -30,6 +38,21 @@ export default async function InterviewsPage({
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
 
+  const ctx = await getOrgContextOrThrow(session.user.id);
+  const canAccess = hasPermission(ctx.role, "interview:conduct");
+  const canManage = hasPermission(ctx.role, "interview:manage");
+
+  if (!canAccess) {
+    return (
+      <div>
+        <PageHeader title="Interviews" description="Create and manage interview sessions." />
+        <Card>
+          <CardContent className="p-6 text-sm text-muted-foreground">You do not have permission to view interviews.</CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const params = (await searchParams) ?? {};
   const q = params.q?.trim();
   const candidateId = params.candidateId?.trim();
@@ -41,25 +64,27 @@ export default async function InterviewsPage({
   const status = asEnum(params.status, statusValues);
   const seniorityLevel = asEnum(params.seniorityLevel, seniorityValues);
 
-  const candidates = await prisma.candidate.findMany({
-    where: { createdById: session.user.id },
+  const db = prisma as unknown as Db;
+  const candidates: Array<{ id: string; fullName: string }> = await db.candidate.findMany({
+    where: { organizationId: ctx.organization.id },
     orderBy: { fullName: "asc" },
     select: { id: true, fullName: true },
   });
 
-  const jobDescriptions = await prisma.jobDescription.findMany({
-    where: { createdById: session.user.id },
-    orderBy: { title: "asc" },
-    select: { id: true, title: true, seniorityLevel: true },
-  });
+  const jobDescriptions: Array<{ id: string; title: string; seniorityLevel: SeniorityLevel | null }> =
+    await db.jobDescription.findMany({
+      where: { organizationId: ctx.organization.id },
+      orderBy: { title: "asc" },
+      select: { id: true, title: true, seniorityLevel: true },
+    });
 
   let rows: InterviewListRow[] = [];
   let loadError: string | null = null;
 
   try {
-    rows = await prisma.interview.findMany({
+    rows = await db.interview.findMany({
       where: {
-        createdById: session.user.id,
+        organizationId: ctx.organization.id,
         ...(q
           ? {
               OR: [
@@ -113,9 +138,11 @@ export default async function InterviewsPage({
             <Button asChild variant="outline">
               <Link href="/interviews">Clear</Link>
             </Button>
-            <Button asChild>
-              <Link href="/interviews/new">Create Interview</Link>
-            </Button>
+            {canManage ? (
+              <Button asChild>
+                <Link href="/interviews/new">Create Interview</Link>
+              </Button>
+            ) : null}
           </div>
         </div>
 
@@ -207,11 +234,13 @@ export default async function InterviewsPage({
               <div className="text-sm text-muted-foreground">
                 Create an interview to tie a candidate to a job description and track the session lifecycle.
               </div>
-              <div className="pt-2">
-                <Button asChild>
-                  <Link href="/interviews/new">Create Interview</Link>
-                </Button>
-              </div>
+              {canManage ? (
+                <div className="pt-2">
+                  <Button asChild>
+                    <Link href="/interviews/new">Create Interview</Link>
+                  </Button>
+                </div>
+              ) : null}
             </div>
           </CardContent>
         </Card>

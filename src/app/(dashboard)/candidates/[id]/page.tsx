@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { SourceType } from "@prisma/client";
 
 import { getServerAuthSession } from "@/auth";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
+import { computeCandidateVsJobDescriptionMatch } from "@/server/services/match-service";
 
 function formatDateTime(value: Date) {
   return new Intl.DateTimeFormat(undefined, {
@@ -37,15 +39,63 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
       seniorityLevel: true,
       linkedInUrl: true,
       githubUrl: true,
+      resumeFileUrl: true,
       resumeFileName: true,
       resumeMimeType: true,
       resumeUploadedAt: true,
+      parsedResumeJson: true,
       createdAt: true,
       updatedAt: true,
+      skillMatches: {
+        where: { sourceType: SourceType.RESUME },
+        select: { confidence: true, skill: { select: { name: true } } },
+        take: 50,
+        orderBy: { confidence: "desc" },
+      },
+      interviews: {
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          createdAt: true,
+          jobDescription: { select: { id: true, title: true } },
+        },
+      },
     },
   });
 
   if (!candidate) notFound();
+
+  const uniqueJobDescriptions = Array.from(
+    new Map(candidate.interviews.map((i) => [i.jobDescription.id, i.jobDescription])).values(),
+  ).slice(0, 3);
+
+  const matchSummaries = await Promise.all(
+    uniqueJobDescriptions.map(async (jd) => {
+      const summary = await computeCandidateVsJobDescriptionMatch({
+        candidateId: candidate.id,
+        jobDescriptionId: jd.id,
+        userId: session.user.id,
+      });
+      return { jobDescription: jd, summary };
+    }),
+  );
+
+  const parsedResume = candidate.parsedResumeJson as
+    | null
+    | {
+        summary?: string;
+        yearsOfExperience?: number;
+        skills?: unknown;
+        cloudPlatforms?: unknown;
+        tools?: unknown;
+        certifications?: unknown;
+        companies?: unknown;
+        education?: unknown;
+        projects?: unknown;
+      };
+
+  const extractedSkillNames = candidate.skillMatches.map((m) => m.skill.name);
 
   return (
     <div className="space-y-6">
@@ -125,7 +175,15 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <div className="text-muted-foreground">File name</div>
-              <div>{candidate.resumeFileName ?? "—"}</div>
+              <div>
+                {candidate.resumeFileUrl && candidate.resumeFileName ? (
+                  <a className="text-primary underline-offset-4 hover:underline" href={candidate.resumeFileUrl}>
+                    {candidate.resumeFileName}
+                  </a>
+                ) : (
+                  "—"
+                )}
+              </div>
             </div>
             <div>
               <div className="text-muted-foreground">MIME type</div>
@@ -141,10 +199,35 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
 
       <Card>
         <CardHeader>
-          <CardTitle>Skill matches</CardTitle>
+          <CardTitle>Resume analysis</CardTitle>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Skill extraction and match scoring will appear here after resume parsing is enabled.
+        <CardContent className="space-y-3 text-sm">
+          {!parsedResume ? (
+            <div className="text-muted-foreground">No parsed resume yet. Upload a resume to generate analysis.</div>
+          ) : (
+            <>
+              <div>
+                <div className="text-muted-foreground">Summary</div>
+                <div className="whitespace-pre-wrap">{parsedResume.summary ?? "—"}</div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <div className="text-muted-foreground">Years of experience</div>
+                  <div>{typeof parsedResume.yearsOfExperience === "number" ? parsedResume.yearsOfExperience : "—"}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Extracted skills</div>
+                  <div className="text-muted-foreground">
+                    {extractedSkillNames.length > 0
+                      ? extractedSkillNames.slice(0, 20).join(", ")
+                      : Array.isArray(parsedResume.skills)
+                        ? (parsedResume.skills as string[]).slice(0, 20).join(", ")
+                        : "—"}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -152,11 +235,66 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
         <CardHeader>
           <CardTitle>Interviews</CardTitle>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Interview sessions associated with this candidate will appear here.
+        <CardContent className="space-y-4 text-sm">
+          {candidate.interviews.length === 0 ? (
+            <div className="text-muted-foreground">No interviews yet.</div>
+          ) : (
+            <div className="space-y-2">
+              {candidate.interviews.map((i) => (
+                <div key={i.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
+                  <div>
+                    <div className="font-medium">{i.jobDescription.title}</div>
+                    <div className="text-muted-foreground">{formatDateTime(i.createdAt)}</div>
+                  </div>
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/interviews/${i.id}`}>View interview</Link>
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Skill match scoring</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          {matchSummaries.length === 0 ? (
+            <div className="text-muted-foreground">Link this candidate to a job description via an interview to see match scoring.</div>
+          ) : (
+            <div className="space-y-3">
+              {matchSummaries.map(({ jobDescription, summary }) => (
+                <div key={jobDescription.id} className="rounded-md border p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-medium">{jobDescription.title}</div>
+                    <div className="text-muted-foreground">
+                      {summary ? `${summary.matchPercentage}% match` : "No requirements extracted yet"}
+                    </div>
+                  </div>
+                  {summary ? (
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <div className="text-muted-foreground">Matching skills</div>
+                        <div className="text-muted-foreground">{summary.matchedSkills.slice(0, 12).join(", ") || "—"}</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground">Missing skills</div>
+                        <div className="text-muted-foreground">{summary.missingSkills.slice(0, 12).join(", ") || "—"}</div>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <div className="text-muted-foreground">Suggested interview focus areas</div>
+                        <div className="text-muted-foreground">{summary.focusAreas.join(", ") || "—"}</div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
   );
 }
-

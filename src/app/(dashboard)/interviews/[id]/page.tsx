@@ -60,7 +60,7 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
 
   if (!interview) notFound();
 
-  const [topicsRows, questionBankOptions, interviewQuestions] = await Promise.all([
+  const [topicsRows, questionBankOptions, interviewQuestions, evaluationScores, scorecard] = await Promise.all([
     prisma.questionBank.findMany({
       distinct: ["topic"],
       select: { topic: true },
@@ -90,9 +90,23 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
         difficulty: true,
       },
     }),
+    prisma.interviewQuestionEvaluation.findMany({
+      where: { interviewQuestion: { interviewId: interview.id } },
+      select: { score: true },
+      take: 200,
+    }),
+    prisma.evaluationScorecard.findUnique({
+      where: { interviewId: interview.id },
+      select: { recommendation: true, overallScore: true, summaryText: true, scorecardJson: true },
+    }),
   ]);
 
   const topics = topicsRows.map((r) => r.topic);
+  const scored = evaluationScores.map((e) => e.score).filter((s): s is number => typeof s === "number");
+  const technicalAverage = scored.length === 0 ? null : Math.round((scored.reduce((a, b) => a + b, 0) / scored.length) * 100) / 100;
+  const evaluatedCount = scored.length;
+  const totalCount = interviewQuestions.length;
+  const completionPct = totalCount === 0 ? 0 : Math.round((evaluatedCount / totalCount) * 100);
 
   return (
     <div className="space-y-6">
@@ -244,8 +258,45 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
         <CardHeader>
           <CardTitle>Scorecard</CardTitle>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Scorecard and evaluation UI will be implemented later.
+        <CardContent className="space-y-4 text-sm">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <div className="text-muted-foreground">Completion</div>
+              <div>{completionPct}%</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Technical average</div>
+              <div>{typeof technicalAverage === "number" ? technicalAverage.toFixed(2) : "—"}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Overall score</div>
+              <div>{typeof scorecard?.overallScore === "number" ? scorecard.overallScore.toFixed(2) : "—"}</div>
+            </div>
+          </div>
+
+          {scorecard ? (
+            <div className="space-y-2">
+              <div>
+                <div className="text-muted-foreground">Recommendation</div>
+                <div>{scorecard.recommendation ?? "—"}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Summary</div>
+                <div className="whitespace-pre-wrap">{scorecard.summaryText ? scorecard.summaryText : "—"}</div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-muted-foreground">No scorecard saved yet. Use the session screen to evaluate and save.</div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/interviews/${interview.id}/session`}>Open session</Link>
+            </Button>
+            <Button type="button" variant="outline" size="sm" disabled>
+              Generate Report (placeholder)
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

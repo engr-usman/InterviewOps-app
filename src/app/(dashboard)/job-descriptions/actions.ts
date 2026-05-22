@@ -9,6 +9,7 @@ import {
   normalizeJobDescriptionFormValues,
   type JobDescriptionFormInputValues,
 } from "@/features/job-descriptions/job-description-schema";
+import { analyzeAndStoreJobDescription } from "@/server/services/jd-service";
 
 type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -34,6 +35,10 @@ export async function createJobDescriptionAction(
     },
     select: { id: true },
   });
+
+  try {
+    await analyzeAndStoreJobDescription({ jobDescriptionId: jd.id, userId: session.user.id });
+  } catch {}
 
   revalidatePath("/job-descriptions");
   return { ok: true, data: { id: jd.id } };
@@ -66,6 +71,10 @@ export async function updateJobDescriptionAction(
   });
 
   if (updated.count === 0) return { ok: false, error: "Job description not found." };
+
+  try {
+    await analyzeAndStoreJobDescription({ jobDescriptionId: id, userId: session.user.id });
+  } catch {}
 
   revalidatePath("/job-descriptions");
   revalidatePath(`/job-descriptions/${id}`);

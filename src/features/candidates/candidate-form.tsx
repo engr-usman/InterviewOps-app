@@ -21,6 +21,11 @@ type CandidateFormMode = "create" | "edit";
 type CandidateFormProps = {
   mode: CandidateFormMode;
   initialValues?: Partial<CandidateFormInputValues>;
+  existingResume?: {
+    resumeFileUrl: string;
+    resumeFileName: string;
+    resumeUploadedAt: string | null;
+  } | null;
   onSubmitAction: (values: CandidateFormInputValues) => Promise<
     | { ok: true; data: { id: string } }
     | {
@@ -36,6 +41,7 @@ type CandidateFormProps = {
 export function CandidateForm({
   mode,
   initialValues,
+  existingResume,
   onSubmitAction,
   submitLabel,
   title,
@@ -43,6 +49,8 @@ export function CandidateForm({
 }: CandidateFormProps) {
   const router = useRouter();
   const [formError, setFormError] = React.useState<string | null>(null);
+  const [resumeFile, setResumeFile] = React.useState<File | null>(null);
+  const [isUploadingResume, setIsUploadingResume] = React.useState(false);
 
   const form = useForm<CandidateFormInputValues>({
     resolver: zodResolver(candidateFormInputSchema),
@@ -57,12 +65,33 @@ export function CandidateForm({
     },
   });
 
+  const uploadResume = async (candidateId: string, file: File) => {
+    const formData = new FormData();
+    formData.append("candidateId", candidateId);
+    formData.append("file", file);
+
+    const resp = await fetch("/api/uploads/resumes", { method: "POST", body: formData });
+    const json = (await resp.json()) as { ok: boolean; error?: string };
+    if (!resp.ok || !json.ok) throw new Error(json.error ?? "Resume upload failed.");
+  };
+
   const onSubmit = form.handleSubmit(async (values) => {
     setFormError(null);
     const result = await onSubmitAction(values);
     if (!result.ok) {
       setFormError(result.error);
       return;
+    }
+
+    if (resumeFile) {
+      setIsUploadingResume(true);
+      try {
+        await uploadResume(result.data.id, resumeFile);
+      } catch (error) {
+        setFormError(error instanceof Error ? error.message : "Resume upload failed.");
+      } finally {
+        setIsUploadingResume(false);
+      }
     }
 
     router.push(`/candidates/${result.data.id}`);
@@ -140,18 +169,30 @@ export function CandidateForm({
 
             <div className="space-y-2">
               <Label htmlFor="resumeFile">Resume</Label>
-              <Input id="resumeFile" type="file" disabled />
-              <p className="text-sm text-muted-foreground">
-                Resume uploads will be enabled in a later MVP iteration.
-              </p>
+              <Input
+                id="resumeFile"
+                type="file"
+                accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                onChange={(e) => setResumeFile(e.target.files?.[0] ?? null)}
+              />
+              {existingResume?.resumeFileUrl ? (
+                <p className="text-sm text-muted-foreground">
+                  Current:{" "}
+                  <a className="text-primary underline-offset-4 hover:underline" href={existingResume.resumeFileUrl}>
+                    {existingResume.resumeFileName}
+                  </a>
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">Upload a PDF/DOC/DOCX. Parsing runs after upload.</p>
+              )}
             </div>
           </div>
 
           {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
 
           <div className="flex items-center gap-3">
-            <Button type="submit" disabled={form.formState.isSubmitting}>
-              {form.formState.isSubmitting ? "Saving..." : submitLabel}
+            <Button type="submit" disabled={form.formState.isSubmitting || isUploadingResume}>
+              {form.formState.isSubmitting || isUploadingResume ? "Saving..." : submitLabel}
             </Button>
             {mode === "create" ? (
               <Button type="button" variant="outline" onClick={() => router.push("/candidates")}>

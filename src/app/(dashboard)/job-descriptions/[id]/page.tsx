@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
+import { RequirementType } from "@prisma/client";
 
 function formatDateTime(value: Date) {
   return new Intl.DateTimeFormat(undefined, {
@@ -40,12 +41,39 @@ export default async function JobDescriptionDetailPage({
       seniorityLevel: true,
       descriptionText: true,
       requirementsText: true,
+      parsedJdJson: true,
       createdAt: true,
       updatedAt: true,
+      skillRequirements: {
+        select: {
+          requirementType: true,
+          priority: true,
+          skill: { select: { id: true, name: true } },
+        },
+        orderBy: [{ requirementType: "asc" }, { priority: "desc" }],
+        take: 200,
+      },
     },
   });
 
   if (!jd) notFound();
+
+  const parsed = jd.parsedJdJson as
+    | null
+    | {
+        summary?: string;
+        requiredSkills?: unknown;
+        preferredSkills?: unknown;
+        responsibilities?: unknown;
+        experienceRequirements?: unknown;
+      };
+
+  const requiredSkills = jd.skillRequirements
+    .filter((r) => r.requirementType === RequirementType.REQUIRED)
+    .map((r) => r.skill.name);
+  const preferredSkills = jd.skillRequirements
+    .filter((r) => r.requirementType === RequirementType.PREFERRED)
+    .map((r) => r.skill.name);
 
   return (
     <div className="space-y-6">
@@ -109,8 +137,29 @@ export default async function JobDescriptionDetailPage({
         <CardHeader>
           <CardTitle>Parsed JD</CardTitle>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Parsed job description output will appear here after JD parsing is enabled.
+        <CardContent className="space-y-3 text-sm">
+          {!parsed ? (
+            <div className="text-muted-foreground">No parsed output yet. Save the job description to run analysis.</div>
+          ) : (
+            <>
+              <div>
+                <div className="text-muted-foreground">Summary</div>
+                <div className="whitespace-pre-wrap">{parsed.summary ?? "—"}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Experience requirement</div>
+                <div>{typeof parsed.experienceRequirements === "string" ? parsed.experienceRequirements : "—"}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Responsibilities (sample)</div>
+                <div className="text-muted-foreground">
+                  {Array.isArray(parsed.responsibilities)
+                    ? (parsed.responsibilities as string[]).slice(0, 8).join(" • ")
+                    : "—"}
+                </div>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -118,8 +167,25 @@ export default async function JobDescriptionDetailPage({
         <CardHeader>
           <CardTitle>Required skills</CardTitle>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Skill requirements will appear here after skills are linked to the job description.
+        <CardContent className="space-y-2 text-sm">
+          {requiredSkills.length === 0 ? (
+            <div className="text-muted-foreground">No required skills extracted yet.</div>
+          ) : (
+            <div className="text-muted-foreground">{requiredSkills.join(", ")}</div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Preferred skills</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          {preferredSkills.length === 0 ? (
+            <div className="text-muted-foreground">No preferred skills extracted yet.</div>
+          ) : (
+            <div className="text-muted-foreground">{preferredSkills.join(", ")}</div>
+          )}
         </CardContent>
       </Card>
 
@@ -134,4 +200,3 @@ export default async function JobDescriptionDetailPage({
     </div>
   );
 }
-

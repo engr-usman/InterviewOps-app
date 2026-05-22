@@ -26,6 +26,9 @@ export default async function EditCandidatePage({ params }: { params: Promise<{ 
       seniorityLevel: true,
       linkedInUrl: true,
       githubUrl: true,
+      resumeFileUrl: true,
+      resumeFileName: true,
+      resumeUploadedAt: true,
     },
   });
 
@@ -39,6 +42,15 @@ export default async function EditCandidatePage({ params }: { params: Promise<{ 
         title="Candidate details"
         description="Keep candidate information up to date for interviews."
         submitLabel="Save changes"
+        existingResume={
+          candidate.resumeFileUrl && candidate.resumeFileName
+            ? {
+                resumeFileUrl: candidate.resumeFileUrl,
+                resumeFileName: candidate.resumeFileName,
+                resumeUploadedAt: candidate.resumeUploadedAt ? candidate.resumeUploadedAt.toISOString() : null,
+              }
+            : null
+        }
         initialValues={{
           fullName: candidate.fullName,
           email: candidate.email ?? "",
@@ -53,4 +65,3 @@ export default async function EditCandidatePage({ params }: { params: Promise<{ 
     </div>
   );
 }
-

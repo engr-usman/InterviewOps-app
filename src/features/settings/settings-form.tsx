@@ -14,8 +14,12 @@ import { cn } from "@/lib/utils";
 import { updateSettingsAction, type SettingsFormValues } from "@/app/(dashboard)/settings/actions";
 
 const settingsClientSchema = z.object({
+  aiEnabled: z.boolean(),
   aiProvider: z.enum(["mock", "openai", "gemini", "claude"]),
-  apiKey: z.union([z.string(), z.literal("")]).optional(),
+  openaiApiKey: z.union([z.string(), z.literal("")]).optional(),
+  geminiApiKey: z.union([z.string(), z.literal("")]).optional(),
+  aiGeneratedQuestionsEnabled: z.boolean(),
+  aiEvaluationSuggestionsEnabled: z.boolean(),
   resumeParsingEnabled: z.boolean(),
   jdAnalysisEnabled: z.boolean(),
   maxResumeUploadMb: z.number().int().min(1).max(50),
@@ -33,6 +37,10 @@ export function SettingsForm({ initialValues }: { initialValues: SettingsFormVal
     defaultValues: initialValues,
   });
 
+  const aiEnabled = useWatch({ control: form.control, name: "aiEnabled" });
+  const aiProvider = useWatch({ control: form.control, name: "aiProvider" });
+  const aiGeneratedQuestionsEnabled = useWatch({ control: form.control, name: "aiGeneratedQuestionsEnabled" });
+  const aiEvaluationSuggestionsEnabled = useWatch({ control: form.control, name: "aiEvaluationSuggestionsEnabled" });
   const resumeParsingEnabled = useWatch({ control: form.control, name: "resumeParsingEnabled" });
   const jdAnalysisEnabled = useWatch({ control: form.control, name: "jdAnalysisEnabled" });
 
@@ -58,9 +66,20 @@ export function SettingsForm({ initialValues }: { initialValues: SettingsFormVal
       <Card>
         <CardHeader>
           <CardTitle>AI configuration</CardTitle>
-          <CardDescription>Provider-ready placeholders. Real providers will be wired later.</CardDescription>
+          <CardDescription>Server-side AI calls only. Stored keys are not displayed back.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="flex items-center gap-3">
+            <input
+              id="aiEnabled"
+              type="checkbox"
+              className="h-4 w-4"
+              checked={aiEnabled}
+              onChange={(e) => form.setValue("aiEnabled", e.target.checked)}
+            />
+            <Label htmlFor="aiEnabled">Enable AI features</Label>
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="aiProvider">AI provider</Label>
             <select id="aiProvider" className={selectClassName} {...form.register("aiProvider")}>
@@ -72,8 +91,51 @@ export function SettingsForm({ initialValues }: { initialValues: SettingsFormVal
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="apiKey">API key (placeholder)</Label>
-            <Input id="apiKey" type="password" placeholder="Not required for mock provider" {...form.register("apiKey")} />
+            <Label htmlFor="openaiApiKey">OpenAI API key</Label>
+            <Input
+              id="openaiApiKey"
+              type="password"
+              placeholder="Leave blank to keep stored key"
+              disabled={!aiEnabled || aiProvider !== "openai"}
+              {...form.register("openaiApiKey")}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="geminiApiKey">Gemini API key</Label>
+            <Input
+              id="geminiApiKey"
+              type="password"
+              placeholder="Leave blank to keep stored key"
+              disabled={!aiEnabled || aiProvider !== "gemini"}
+              {...form.register("geminiApiKey")}
+            />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex items-center gap-3">
+              <input
+                id="aiGeneratedQuestionsEnabled"
+                type="checkbox"
+                className="h-4 w-4"
+                checked={aiGeneratedQuestionsEnabled}
+                onChange={(e) => form.setValue("aiGeneratedQuestionsEnabled", e.target.checked)}
+                disabled={!aiEnabled}
+              />
+              <Label htmlFor="aiGeneratedQuestionsEnabled">Enable AI-generated questions</Label>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <input
+                id="aiEvaluationSuggestionsEnabled"
+                type="checkbox"
+                className="h-4 w-4"
+                checked={aiEvaluationSuggestionsEnabled}
+                onChange={(e) => form.setValue("aiEvaluationSuggestionsEnabled", e.target.checked)}
+                disabled={!aiEnabled}
+              />
+              <Label htmlFor="aiEvaluationSuggestionsEnabled">Enable AI evaluation suggestions</Label>
+            </div>
           </div>
         </CardContent>
       </Card>

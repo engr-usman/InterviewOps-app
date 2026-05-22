@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
 import { computeCandidateVsJobDescriptionMatch } from "@/server/services/match-service";
+import { CandidateAiPanel } from "@/features/ai/candidate-ai-panel";
 
 function formatDateTime(value: Date) {
   return new Intl.DateTimeFormat(undefined, {
@@ -44,6 +45,7 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
       resumeMimeType: true,
       resumeUploadedAt: true,
       parsedResumeJson: true,
+      aiMetadataJson: true,
       createdAt: true,
       updatedAt: true,
       skillMatches: {
@@ -96,6 +98,34 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
       };
 
   const extractedSkillNames = candidate.skillMatches.map((m) => m.skill.name);
+
+  const candidateInterviewsWithScore = await prisma.interview.findMany({
+    where: { createdById: session.user.id, candidateId: candidate.id },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    select: {
+      id: true,
+      createdAt: true,
+      scorecard: { select: { overallScore: true, recommendation: true } },
+      jobDescription: { select: { title: true } },
+    },
+  });
+
+  const scoredInterviews = candidateInterviewsWithScore
+    .map((i) => i.scorecard?.overallScore)
+    .filter((s): s is number => typeof s === "number");
+  const candidateAvgScore =
+    scoredInterviews.length === 0
+      ? null
+      : Math.round((scoredInterviews.reduce((a, b) => a + b, 0) / scoredInterviews.length) * 100) / 100;
+  const hireCount = candidateInterviewsWithScore.filter(
+    (i) => i.scorecard?.recommendation === "HIRE" || i.scorecard?.recommendation === "STRONG_HIRE",
+  ).length;
+  const recCount = candidateInterviewsWithScore.filter((i) => i.scorecard?.recommendation).length;
+  const candidateHireRate = recCount === 0 ? null : Math.round((hireCount / recCount) * 100);
+
+  const topSkills = candidate.skillMatches.slice(0, 6);
+  const bottomSkills = candidate.skillMatches.slice().reverse().slice(0, 6);
 
   return (
     <div className="space-y-6">
@@ -231,6 +261,8 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
         </CardContent>
       </Card>
 
+      <CandidateAiPanel candidateId={candidate.id} aiMetadataJson={candidate.aiMetadataJson} />
+
       <Card>
         <CardHeader>
           <CardTitle>Interviews</CardTitle>
@@ -253,6 +285,77 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
               ))}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Candidate analytics</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <div className="text-muted-foreground">Interviews (last 20)</div>
+              <div className="text-lg font-semibold">{candidateInterviewsWithScore.length}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Average score</div>
+              <div className="text-lg font-semibold">{candidateAvgScore ?? "—"}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Hire rate</div>
+              <div className="text-lg font-semibold">{candidateHireRate !== null ? `${candidateHireRate}%` : "—"}</div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-md border p-4">
+              <div className="text-sm font-medium">Strongest skills (resume)</div>
+              <div className="mt-2 space-y-2">
+                {topSkills.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">—</div>
+                ) : (
+                  topSkills.map((s) => (
+                    <div key={s.skill.name} className="flex items-center justify-between gap-3">
+                      <div className="text-muted-foreground">{s.skill.name}</div>
+                      <div className="text-muted-foreground">{typeof s.confidence === "number" ? s.confidence.toFixed(2) : "—"}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+            <div className="rounded-md border p-4">
+              <div className="text-sm font-medium">Weakest skills (resume)</div>
+              <div className="mt-2 space-y-2">
+                {bottomSkills.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">—</div>
+                ) : (
+                  bottomSkills.map((s) => (
+                    <div key={s.skill.name} className="flex items-center justify-between gap-3">
+                      <div className="text-muted-foreground">{s.skill.name}</div>
+                      <div className="text-muted-foreground">{typeof s.confidence === "number" ? s.confidence.toFixed(2) : "—"}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-md border p-4">
+            <div className="text-sm font-medium">Recommendation trend (recent)</div>
+            <div className="mt-2 space-y-2">
+              {candidateInterviewsWithScore.length === 0 ? (
+                <div className="text-sm text-muted-foreground">—</div>
+              ) : (
+                candidateInterviewsWithScore.slice(0, 8).map((i) => (
+                  <div key={i.id} className="flex items-center justify-between gap-3">
+                    <div className="text-muted-foreground">{i.jobDescription.title}</div>
+                    <div className="text-muted-foreground">{i.scorecard?.recommendation ? String(i.scorecard.recommendation) : "—"}</div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </CardContent>
       </Card>
 

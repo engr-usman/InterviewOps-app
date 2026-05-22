@@ -48,6 +48,13 @@ export default async function QuestionBankPage({
 
   let topics: Array<{ topic: string }> = [];
   let rows: QuestionListRow[] = [];
+  let analytics: {
+    mostUsed: Array<{ id: string; topic: string; prompt: string; uses: number; avgScore: number | null; evaluated: number }>;
+    highestScoring: Array<{ id: string; topic: string; prompt: string; avgScore: number }>;
+    hardest: Array<{ id: string; topic: string; prompt: string; avgScore: number }>;
+    mostSkipped: Array<{ id: string; topic: string; prompt: string; skipRatePct: number; uses: number }>;
+    typeUsage: Array<{ type: string; count: number }>;
+  } | null = null;
   let loadError: string | null = null;
 
   try {
@@ -92,9 +99,139 @@ export default async function QuestionBankPage({
     loadError = "Failed to load questions.";
   }
 
+  try {
+    const interviewQuestions = await prisma.interviewQuestion.findMany({
+      where: { interview: { createdById: session.user.id }, questionBankId: { not: null } },
+      select: {
+        questionBankId: true,
+        evaluation: { select: { score: true } },
+        questionBank: { select: { id: true, topic: true, prompt: true } },
+      },
+      take: 4000,
+      orderBy: { createdAt: "desc" },
+    });
+
+    const typeUsageRaw = await prisma.interviewQuestion.groupBy({
+      by: ["type"],
+      where: { interview: { createdById: session.user.id } },
+      _count: { _all: true },
+    });
+
+    const map = new Map<
+      string,
+      { id: string; topic: string; prompt: string; uses: number; scoreSum: number; scoreCount: number }
+    >();
+
+    for (const q of interviewQuestions) {
+      if (!q.questionBankId || !q.questionBank) continue;
+      const key = q.questionBankId;
+      const cur =
+        map.get(key) ?? {
+          id: q.questionBank.id,
+          topic: q.questionBank.topic,
+          prompt: q.questionBank.prompt,
+          uses: 0,
+          scoreSum: 0,
+          scoreCount: 0,
+        };
+      cur.uses += 1;
+      if (typeof q.evaluation?.score === "number") {
+        cur.scoreSum += q.evaluation.score;
+        cur.scoreCount += 1;
+      }
+      map.set(key, cur);
+    }
+
+    const all = Array.from(map.values()).map((v) => ({
+      ...v,
+      evaluated: v.scoreCount,
+      avgScore: v.scoreCount === 0 ? null : Math.round((v.scoreSum / v.scoreCount) * 100) / 100,
+    }));
+
+    const mostUsed = all
+      .slice()
+      .sort((a, b) => b.uses - a.uses)
+      .slice(0, 8);
+
+    const highestScoring = all
+      .filter((a) => typeof a.avgScore === "number")
+      .slice()
+      .sort((a, b) => (b.avgScore as number) - (a.avgScore as number))
+      .slice(0, 8)
+      .map((a) => ({ id: a.id, topic: a.topic, prompt: a.prompt, avgScore: a.avgScore as number }));
+
+    const hardest = all
+      .filter((a) => typeof a.avgScore === "number")
+      .slice()
+      .sort((a, b) => (a.avgScore as number) - (b.avgScore as number))
+      .slice(0, 8)
+      .map((a) => ({ id: a.id, topic: a.topic, prompt: a.prompt, avgScore: a.avgScore as number }));
+
+    const mostSkipped = all
+      .filter((a) => a.uses >= 2)
+      .slice()
+      .map((a) => ({
+        id: a.id,
+        topic: a.topic,
+        prompt: a.prompt,
+        uses: a.uses,
+        skipRatePct: Math.round(((a.uses - a.evaluated) / Math.max(1, a.uses)) * 100),
+      }))
+      .sort((a, b) => b.skipRatePct - a.skipRatePct)
+      .slice(0, 8);
+
+    analytics = {
+      mostUsed,
+      highestScoring,
+      hardest,
+      mostSkipped,
+      typeUsage: typeUsageRaw.map((t) => ({ type: String(t.type), count: t._count._all })),
+    };
+  } catch {
+    analytics = null;
+  }
+
   return (
     <div>
       <PageHeader title="Question Bank" description="Maintain a reusable library of interview questions." />
+
+      {analytics ? (
+        <div className="mb-6 grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardContent className="p-6 text-sm">
+              <div className="text-sm font-medium">Usage overview</div>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                {analytics.typeUsage.map((t) => (
+                  <div key={t.type} className="rounded-md border p-3">
+                    <div className="text-muted-foreground">{t.type}</div>
+                    <div className="text-lg font-semibold">{t.count}</div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-6 text-sm">
+              <div className="text-sm font-medium">Most used questions (top 8)</div>
+              <div className="mt-2 space-y-2">
+                {analytics.mostUsed.length === 0 ? (
+                  <div className="text-muted-foreground">No usage yet.</div>
+                ) : (
+                  analytics.mostUsed.map((q) => (
+                    <div key={q.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="font-medium">{q.topic}</div>
+                        <div className="truncate text-muted-foreground">{q.prompt}</div>
+                      </div>
+                      <div className="shrink-0 text-muted-foreground">{q.uses}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
 
       <div className="mb-6 flex flex-col gap-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

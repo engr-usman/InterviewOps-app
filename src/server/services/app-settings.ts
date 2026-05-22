@@ -1,8 +1,13 @@
 import { prisma } from "@/lib/prisma";
 
 export type AppSettingKey =
+  | "ai.enabled"
   | "ai.provider"
   | "ai.apiKey"
+  | "ai.openaiApiKey"
+  | "ai.geminiApiKey"
+  | "ai.questions.enabled"
+  | "ai.evaluation.enabled"
   | "resumeParsing.enabled"
   | "jdAnalysis.enabled"
   | "uploads.maxResumeBytes";
@@ -59,4 +64,3 @@ export async function upsertAppSetting(key: AppSettingKey, settingValue: unknown
     select: { key: true },
   });
 }
-

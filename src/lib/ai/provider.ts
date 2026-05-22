@@ -1,26 +1,8 @@
-export type AiProviderId = "mock" | "openai" | "gemini" | "claude";
+export type { AiProvider, AiProviderConfig, AiProviderId, AiTextRequest, AiTextResponse } from "@/lib/ai/types";
 
-export type AiProviderConfig = {
-  provider: AiProviderId;
-  apiKey?: string;
-};
-
-export type AiTextRequest = {
-  system?: string;
-  prompt: string;
-};
-
-export type AiTextResponse = {
-  text: string;
-  provider: AiProviderId;
-  model?: string;
-  metadata?: Record<string, unknown>;
-};
-
-export interface AiProvider {
-  id: AiProviderId;
-  generateText(req: AiTextRequest): Promise<AiTextResponse>;
-}
+import type { AiProvider, AiProviderConfig, AiProviderId, AiTextRequest, AiTextResponse } from "@/lib/ai/types";
+import { GeminiProvider } from "@/lib/ai/providers/gemini";
+import { OpenAiProvider } from "@/lib/ai/providers/openai";
 
 export class MockAiProvider implements AiProvider {
   public readonly id: AiProviderId = "mock";
@@ -44,6 +26,16 @@ export class MockAiProvider implements AiProvider {
 
 export function createAiProvider(config: AiProviderConfig): AiProvider {
   if (config.provider === "mock") return new MockAiProvider();
+
+  if (config.provider === "openai") {
+    if (!config.apiKey) return new MockAiProvider();
+    return new OpenAiProvider({ apiKey: config.apiKey });
+  }
+
+  if (config.provider === "gemini") {
+    if (!config.apiKey) return new MockAiProvider();
+    return new GeminiProvider({ apiKey: config.apiKey });
+  }
+
   return new MockAiProvider();
 }
-

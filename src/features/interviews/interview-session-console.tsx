@@ -21,6 +21,12 @@ import {
   type SaveScorecardValues,
 } from "@/features/interviews/interview-evaluation-schema";
 import { saveInterviewQuestionEvaluationAction, saveInterviewScorecardAction } from "@/app/(dashboard)/interviews/session-actions";
+import {
+  acceptFollowUpQuestionAction,
+  generateEvaluationInsightAction,
+  generateInterviewSummaryAction,
+  suggestFollowUpQuestionsAction,
+} from "@/app/(dashboard)/ai/actions";
 
 export type SessionCandidate = {
   id: string;
@@ -113,6 +119,13 @@ export function InterviewSessionConsole({
 
   const [notice, setNotice] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [followUps, setFollowUps] = React.useState<Array<{ questionText: string; intent: string; tags: string[] }> | null>(
+    null,
+  );
+  const [followUpLoading, setFollowUpLoading] = React.useState(false);
+  const [aiInsight, setAiInsight] = React.useState<Record<string, unknown> | null>(null);
+  const [aiInsightLoading, setAiInsightLoading] = React.useState(false);
+  const [aiSummaryLoading, setAiSummaryLoading] = React.useState(false);
 
   const selectedQuestion = React.useMemo(
     () => (selectedId ? questions.find((q) => q.id === selectedId) ?? null : null),
@@ -202,6 +215,8 @@ export function InterviewSessionConsole({
     }
     setNotice(null);
     setError(null);
+    setFollowUps(null);
+    setAiInsight(null);
     const url = `/interviews/${interviewId}/session?q=${encodeURIComponent(nextId)}`;
     router.replace(url);
   };
@@ -237,6 +252,63 @@ export function InterviewSessionConsole({
     setSelectedQuestionId(nextId);
   };
 
+  const onSuggestFollowUp = async () => {
+    if (!selectedQuestion) return;
+    setError(null);
+    setNotice(null);
+    setFollowUps(null);
+    setFollowUpLoading(true);
+    try {
+      const result = await suggestFollowUpQuestionsAction(interviewId, selectedQuestion.id);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setFollowUps(result.data.followUps);
+      setNotice("Follow-up suggestions generated.");
+    } finally {
+      setFollowUpLoading(false);
+    }
+  };
+
+  const onAcceptFollowUp = async (text: string) => {
+    setError(null);
+    setNotice(null);
+    const result = await acceptFollowUpQuestionAction(interviewId, text);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setNotice("Follow-up added to interview.");
+    setFollowUps(null);
+    router.refresh();
+  };
+
+  const onGenerateAiInsight = async () => {
+    if (!selectedQuestion) return;
+    setError(null);
+    setNotice(null);
+    setAiInsight(null);
+    setAiInsightLoading(true);
+    try {
+      const result = await generateEvaluationInsightAction(interviewId, selectedQuestion.id);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setAiInsight(result.data.insight);
+      setNotice("AI insight generated.");
+    } finally {
+      setAiInsightLoading(false);
+    }
+  };
+
+  const onApplyAiSuggestedScore = () => {
+    const raw = aiInsight?.suggestedScore;
+    if (typeof raw !== "number" || Number.isNaN(raw)) return;
+    evaluationForm.setValue("score", raw, { shouldDirty: true });
+  };
+
   const onSaveScorecard = scorecardForm.handleSubmit(async (values) => {
     setError(null);
     setNotice(null);
@@ -248,6 +320,44 @@ export function InterviewSessionConsole({
     setNotice("Scorecard saved.");
     router.refresh();
   });
+
+  const onGenerateAiSummary = async () => {
+    setError(null);
+    setNotice(null);
+    setAiSummaryLoading(true);
+    try {
+      const result = await generateInterviewSummaryAction(interviewId);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      const summary = result.data.summary as Record<string, unknown>;
+      const interviewSummary = typeof summary.interviewSummary === "string" ? summary.interviewSummary : "";
+      const strengths = Array.isArray(summary.strengthsSummary)
+        ? (summary.strengthsSummary as string[]).filter((s) => typeof s === "string")
+        : [];
+      const weaknesses = Array.isArray(summary.weaknessesSummary)
+        ? (summary.weaknessesSummary as string[]).filter((s) => typeof s === "string")
+        : [];
+      const reasoning = typeof summary.hiringRecommendationReasoning === "string" ? summary.hiringRecommendationReasoning : "";
+      const verdict = typeof summary.finalVerdictExplanation === "string" ? summary.finalVerdictExplanation : "";
+
+      scorecardForm.setValue("interviewSummary", interviewSummary, { shouldDirty: true });
+      scorecardForm.setValue("strongAreas", strengths.map((s) => `- ${s}`).join("\n"), { shouldDirty: true });
+      scorecardForm.setValue("hiringConcerns", weaknesses.map((s) => `- ${s}`).join("\n"), { shouldDirty: true });
+      scorecardForm.setValue("finalRecommendation", `${reasoning}${reasoning && verdict ? "\n\n" : ""}${verdict}`, {
+        shouldDirty: true,
+      });
+      if (result.data.suggestedRecommendation) {
+        scorecardForm.setValue("recommendation", result.data.suggestedRecommendation, { shouldDirty: true });
+      }
+
+      setNotice("AI summary generated. Review and save when ready.");
+    } finally {
+      setAiSummaryLoading(false);
+    }
+  };
 
   const questionTags = selectedQuestion ? tagsToList(selectedQuestion.tagsJson) : [];
   const scorecardOverall = scorecard?.overallScore ?? null;
@@ -469,6 +579,95 @@ export function InterviewSessionConsole({
                         Next Question
                       </Button>
                     </div>
+
+                    <div className="h-px bg-border" />
+
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-sm font-medium">AI assistant</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button type="button" variant="outline" onClick={onSuggestFollowUp} disabled={followUpLoading}>
+                            {followUpLoading ? "Generating..." : "Suggest Follow-up"}
+                          </Button>
+                          <Button type="button" variant="outline" onClick={onGenerateAiInsight} disabled={aiInsightLoading}>
+                            {aiInsightLoading ? "Generating..." : "Generate AI Insight"}
+                          </Button>
+                          <Button type="button" variant="outline" onClick={onApplyAiSuggestedScore} disabled={!aiInsight}>
+                            Apply Suggested Score
+                          </Button>
+                        </div>
+                      </div>
+
+                      {followUps ? (
+                        <div className="space-y-2 rounded-md border p-3">
+                          <div className="text-sm text-muted-foreground">Follow-up suggestions</div>
+                          <div className="space-y-2">
+                            {followUps.map((f, idx) => (
+                              <div key={`${idx}-${f.questionText}`} className="rounded-md border p-3">
+                                <div className="font-medium">{f.questionText}</div>
+                                {f.intent ? <div className="mt-1 text-sm text-muted-foreground">{f.intent}</div> : null}
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                  <Button type="button" size="sm" onClick={() => onAcceptFollowUp(f.questionText)}>
+                                    Accept
+                                  </Button>
+                                  <Button type="button" size="sm" variant="outline" onClick={() => setFollowUps(null)}>
+                                    Discard
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {aiInsight ? (
+                        <div className="space-y-2 rounded-md border p-3">
+                          <div className="text-sm text-muted-foreground">Evaluation insight</div>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div>
+                              <div className="text-muted-foreground">Suggested score</div>
+                              <div>
+                                {typeof aiInsight.suggestedScore === "number" && !Number.isNaN(aiInsight.suggestedScore)
+                                  ? aiInsight.suggestedScore
+                                  : "—"}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Confidence</div>
+                              <div>{typeof aiInsight.confidenceAssessment === "string" ? aiInsight.confidenceAssessment : "—"}</div>
+                            </div>
+                            <div className="sm:col-span-2">
+                              <div className="text-muted-foreground">Technical depth</div>
+                              <div className="text-muted-foreground">
+                                {typeof aiInsight.technicalDepthAssessment === "string" ? aiInsight.technicalDepthAssessment : "—"}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Strong signals</div>
+                              <div className="text-muted-foreground">
+                                {Array.isArray(aiInsight.strongSignals)
+                                  ? (aiInsight.strongSignals as string[]).slice(0, 6).join(", ")
+                                  : "—"}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Red flags</div>
+                              <div className="text-muted-foreground">
+                                {Array.isArray(aiInsight.redFlags) ? (aiInsight.redFlags as string[]).slice(0, 6).join(", ") : "—"}
+                              </div>
+                            </div>
+                            <div className="sm:col-span-2">
+                              <div className="text-muted-foreground">Missing concepts</div>
+                              <div className="text-muted-foreground">
+                                {Array.isArray(aiInsight.missingConcepts)
+                                  ? (aiInsight.missingConcepts as string[]).slice(0, 10).join(", ")
+                                  : "—"}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
                   </form>
                 </>
               )}
@@ -500,6 +699,12 @@ export function InterviewSessionConsole({
                   <div className="text-muted-foreground">Recommendation</div>
                   <div className="text-lg font-semibold">{scorecard?.recommendation ?? "—"}</div>
                 </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" variant="outline" onClick={onGenerateAiSummary} disabled={aiSummaryLoading}>
+                  {aiSummaryLoading ? "Generating..." : "Generate AI Summary"}
+                </Button>
               </div>
 
               <form onSubmit={onSaveScorecard} className="space-y-4">

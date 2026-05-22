@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
 import { InterviewQuestionTable } from "@/features/interviews/interview-question-table";
 import { InterviewQuestionsManager } from "@/features/interviews/interview-questions-manager";
+import { InterviewAiQuestionsManager } from "@/features/interviews/interview-ai-questions-manager";
 
 function formatDateTime(value: Date) {
   return new Intl.DateTimeFormat(undefined, {
@@ -44,6 +45,7 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
           phone: true,
           location: true,
           seniorityLevel: true,
+          aiMetadataJson: true,
         },
       },
       jobDescription: {
@@ -53,6 +55,7 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
           department: true,
           location: true,
           seniorityLevel: true,
+          aiMetadataJson: true,
         },
       },
     },
@@ -60,7 +63,7 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
 
   if (!interview) notFound();
 
-  const [topicsRows, questionBankOptions, interviewQuestions, evaluationScores, scorecard] = await Promise.all([
+  const [topicsRows, questionBankOptions, interviewQuestions, evaluationScores, scorecard, questionsWithEval] = await Promise.all([
     prisma.questionBank.findMany({
       distinct: ["topic"],
       select: { topic: true },
@@ -99,6 +102,18 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
       where: { interviewId: interview.id },
       select: { recommendation: true, overallScore: true, summaryText: true, scorecardJson: true },
     }),
+    prisma.interviewQuestion.findMany({
+      where: { interviewId: interview.id },
+      orderBy: { order: "asc" },
+      select: {
+        id: true,
+        order: true,
+        topic: true,
+        questionText: true,
+        evaluation: { select: { score: true, updatedAt: true } },
+      },
+      take: 200,
+    }),
   ]);
 
   const topics = topicsRows.map((r) => r.topic);
@@ -107,6 +122,12 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
   const evaluatedCount = scored.length;
   const totalCount = interviewQuestions.length;
   const completionPct = totalCount === 0 ? 0 : Math.round((evaluatedCount / totalCount) * 100);
+  const aiCandidateSummary = (interview.candidate.aiMetadataJson as { resumeAnalysis?: unknown } | null)?.resumeAnalysis as
+    | null
+    | { profileSummary?: unknown };
+  const aiJdSummary = (interview.jobDescription.aiMetadataJson as { jdAnalysis?: unknown } | null)?.jdAnalysis as
+    | null
+    | { summary?: unknown };
 
   return (
     <div className="space-y-6">
@@ -229,6 +250,7 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
           <CardTitle>Questions</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
+          <InterviewAiQuestionsManager interviewId={interview.id} />
           <InterviewQuestionsManager interviewId={interview.id} topics={topics} questionBankOptions={questionBankOptions} />
 
           <div className="space-y-2">
@@ -288,6 +310,67 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
           ) : (
             <div className="text-muted-foreground">No scorecard saved yet. Use the session screen to evaluate and save.</div>
           )}
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-md border p-4">
+              <div className="text-sm font-medium">Question performance</div>
+              <div className="mt-2 space-y-2">
+                {questionsWithEval.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No questions yet.</div>
+                ) : (
+                  questionsWithEval.slice(0, 12).map((q) => (
+                    <div key={q.id} className="flex items-center justify-between gap-3 text-sm">
+                      <div className="text-muted-foreground">
+                        {q.order}. {q.topic ?? "—"}
+                      </div>
+                      <div>{typeof q.evaluation?.score === "number" ? q.evaluation.score : "—"}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-md border p-4">
+              <div className="text-sm font-medium">Evaluation timeline</div>
+              <div className="mt-2 space-y-2">
+                {questionsWithEval.filter((q) => q.evaluation?.updatedAt).length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No evaluations yet.</div>
+                ) : (
+                  questionsWithEval
+                    .filter((q) => q.evaluation?.updatedAt)
+                    .slice()
+                    .sort((a, b) => (b.evaluation?.updatedAt?.getTime() ?? 0) - (a.evaluation?.updatedAt?.getTime() ?? 0))
+                    .slice(0, 8)
+                    .map((q) => (
+                      <div key={q.id} className="flex items-center justify-between gap-3 text-sm">
+                        <div className="text-muted-foreground">
+                          {q.order}. {q.topic ?? "—"}
+                        </div>
+                        <div className="text-muted-foreground">
+                          {q.evaluation?.updatedAt ? formatDateTime(q.evaluation.updatedAt) : "—"}
+                        </div>
+                      </div>
+                    ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-md border p-4">
+            <div className="text-sm font-medium">AI insight summary</div>
+            <div className="mt-2 grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <div className="text-muted-foreground">Candidate snapshot</div>
+                <div className="text-muted-foreground">
+                  {typeof aiCandidateSummary?.profileSummary === "string" ? (aiCandidateSummary.profileSummary as string) : "—"}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Role snapshot</div>
+                <div className="text-muted-foreground">{typeof aiJdSummary?.summary === "string" ? (aiJdSummary.summary as string) : "—"}</div>
+              </div>
+            </div>
+          </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <Button asChild variant="outline" size="sm">

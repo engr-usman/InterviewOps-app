@@ -9,9 +9,12 @@ export default async function SettingsPage() {
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
 
-  const [aiProvider, apiKey, resumeParsingEnabled, jdAnalysisEnabled, maxResumeBytes] = await Promise.all([
+  const [aiEnabled, aiProvider, aiQuestionsEnabled, aiEvaluationEnabled, resumeParsingEnabled, jdAnalysisEnabled, maxResumeBytes] =
+    await Promise.all([
+      getBooleanSetting("ai.enabled", false),
     getStringSetting("ai.provider", "mock"),
-    getStringSetting("ai.apiKey", ""),
+      getBooleanSetting("ai.questions.enabled", false),
+      getBooleanSetting("ai.evaluation.enabled", false),
     getBooleanSetting("resumeParsing.enabled", true),
     getBooleanSetting("jdAnalysis.enabled", true),
     getNumberSetting("uploads.maxResumeBytes", 5 * 1024 * 1024),
@@ -24,8 +27,12 @@ export default async function SettingsPage() {
       <PageHeader title="Settings" description="Application configuration" />
       <SettingsForm
         initialValues={{
+          aiEnabled,
           aiProvider: aiProvider === "openai" || aiProvider === "gemini" || aiProvider === "claude" ? aiProvider : "mock",
-          apiKey,
+          openaiApiKey: "",
+          geminiApiKey: "",
+          aiGeneratedQuestionsEnabled: aiQuestionsEnabled,
+          aiEvaluationSuggestionsEnabled: aiEvaluationEnabled,
           resumeParsingEnabled,
           jdAnalysisEnabled,
           maxResumeUploadMb,

@@ -6,6 +6,8 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
+import { InterviewQuestionTable } from "@/features/interviews/interview-question-table";
+import { InterviewQuestionsManager } from "@/features/interviews/interview-questions-manager";
 
 function formatDateTime(value: Date) {
   return new Intl.DateTimeFormat(undefined, {
@@ -57,6 +59,40 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
   });
 
   if (!interview) notFound();
+
+  const [topicsRows, questionBankOptions, interviewQuestions] = await Promise.all([
+    prisma.questionBank.findMany({
+      distinct: ["topic"],
+      select: { topic: true },
+      orderBy: { topic: "asc" },
+    }),
+    prisma.questionBank.findMany({
+      orderBy: [{ topic: "asc" }, { createdAt: "desc" }],
+      select: {
+        id: true,
+        topic: true,
+        prompt: true,
+        type: true,
+        difficulty: true,
+        seniorityLevel: true,
+      },
+      take: 1000,
+    }),
+    prisma.interviewQuestion.findMany({
+      where: { interviewId: interview.id },
+      orderBy: { order: "asc" },
+      select: {
+        id: true,
+        order: true,
+        topic: true,
+        questionText: true,
+        type: true,
+        difficulty: true,
+      },
+    }),
+  ]);
+
+  const topics = topicsRows.map((r) => r.topic);
 
   return (
     <div className="space-y-6">
@@ -178,8 +214,29 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
         <CardHeader>
           <CardTitle>Questions</CardTitle>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Interview questions will be configured in a later step.
+        <CardContent className="space-y-6">
+          <InterviewQuestionsManager interviewId={interview.id} topics={topics} questionBankOptions={questionBankOptions} />
+
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Current questions</div>
+            {interviewQuestions.length === 0 ? (
+              <div className="rounded-lg border p-6 text-sm text-muted-foreground">
+                No questions yet. Generate a set or add a question manually.
+              </div>
+            ) : (
+              <InterviewQuestionTable
+                interviewId={interview.id}
+                rows={interviewQuestions.map((q) => ({
+                  id: q.id,
+                  order: q.order,
+                  topic: q.topic ?? "—",
+                  questionText: q.questionText,
+                  type: q.type,
+                  difficulty: q.difficulty,
+                }))}
+              />
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -203,4 +260,3 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
     </div>
   );
 }
-

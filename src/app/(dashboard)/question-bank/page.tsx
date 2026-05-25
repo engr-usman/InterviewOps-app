@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { prisma } from "@/lib/prisma";
 import { QuestionTable, type QuestionListRow } from "@/features/question-bank/question-table";
+import { getOrgContextOrThrow } from "@/server/services/org-context";
 import {
   difficultyOptions,
   questionTypeOptions,
@@ -33,6 +34,8 @@ export default async function QuestionBankPage({
 }) {
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
+
+  const ctx = await getOrgContextOrThrow(session.user.id);
 
   const params = (await searchParams) ?? {};
   const q = params.q?.trim();
@@ -101,7 +104,7 @@ export default async function QuestionBankPage({
 
   try {
     const interviewQuestions = await prisma.interviewQuestion.findMany({
-      where: { interview: { createdById: session.user.id }, questionBankId: { not: null } },
+      where: { interview: { organizationId: ctx.organization.id }, questionBankId: { not: null } },
       select: {
         questionBankId: true,
         evaluation: { select: { score: true } },
@@ -113,7 +116,7 @@ export default async function QuestionBankPage({
 
     const typeUsageRaw = await prisma.interviewQuestion.groupBy({
       by: ["type"],
-      where: { interview: { createdById: session.user.id } },
+      where: { interview: { organizationId: ctx.organization.id } },
       _count: { _all: true },
     });
 

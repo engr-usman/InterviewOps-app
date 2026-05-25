@@ -206,6 +206,22 @@ export async function generateAndUpsertInterviewReport({
 
   const title = `${payload.interview.candidate.fullName} — ${payload.interview.jobDescription.title} (${type})`;
 
+  const warnings: string[] = [];
+  if (!payload.scorecard) warnings.push("No scorecard saved yet. Report is partial.");
+  if (payload.questions.length === 0) warnings.push("No interview questions found.");
+  if (payload.questions.every((q) => !q.evaluation || typeof q.evaluation.score !== "number")) {
+    warnings.push("No scored evaluations found yet.");
+  }
+  if (warnings.length > 0) {
+    payload.details = {
+      ...(payload.details ?? { strengths: [], weaknesses: [] }),
+      sourceHints: {
+        ...(payload.details?.sourceHints ?? {}),
+      },
+    };
+    (payload as unknown as { warnings?: string[] }).warnings = warnings;
+  }
+
   const existing = await db.report.findFirst({
     where: { organizationId, interviewId, type },
     orderBy: { updatedAt: "desc" },

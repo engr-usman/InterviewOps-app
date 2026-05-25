@@ -24,7 +24,7 @@ export function Sidebar() {
       <div className="mb-6 text-lg font-semibold">InterviewOps</div>
       <nav className="flex flex-col gap-1">
         {navItems.map((item) => {
-          const active = pathname === item.href;
+          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
             <Link
               key={item.href}

@@ -32,6 +32,7 @@ export type InterviewReport = BaseReport & {
     questionText: string;
     evaluation: { score: number | null; notesText: string | null; metadataJson: unknown } | null;
   }>;
+  warnings?: string[];
   details?: {
     candidateSummary?: string | null;
     jobDescriptionSummary?: string | null;

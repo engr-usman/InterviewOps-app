@@ -16,8 +16,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const session = await getServerAuthSession();
   if (!session?.user?.id) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
 
-  await requireOrgPermission(session.user.id, "reports:view");
-  const ctx = await requireOrgFeature(session.user.id, "exports");
+  let ctx: Awaited<ReturnType<typeof requireOrgFeature>>;
+  try {
+    await requireOrgPermission(session.user.id, "reports:view");
+    ctx = await requireOrgFeature(session.user.id, "exports");
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "Forbidden." }, { status: 403 });
+  }
 
   const { id } = await params;
   const report = await prisma.report.findFirst({
@@ -82,4 +87,3 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     },
   });
 }
-

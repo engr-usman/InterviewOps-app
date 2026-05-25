@@ -132,6 +132,19 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
         </div>
       </div>
 
+      {payload.warnings && payload.warnings.length > 0 ? (
+        <Card className="border-amber-200 bg-amber-50/60 print:hidden dark:border-amber-900 dark:bg-amber-950/30">
+          <CardContent className="p-4 text-sm text-amber-900 dark:text-amber-200">
+            <div className="font-medium">Report generated with warnings</div>
+            <div className="mt-2 space-y-1">
+              {payload.warnings.map((w) => (
+                <div key={w}>• {w}</div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card className="print:border-none print:shadow-none">
         <CardHeader className="space-y-2">
           <CardTitle className="flex flex-wrap items-center gap-2">
@@ -269,4 +282,3 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
     </div>
   );
 }
-

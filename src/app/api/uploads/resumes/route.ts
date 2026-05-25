@@ -39,7 +39,12 @@ export async function POST(req: Request) {
   const session = await getServerAuthSession();
   if (!session?.user?.id) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
 
-  const ctx = await requireOrgPermission(session.user.id, "candidate:manage");
+  let ctx: Awaited<ReturnType<typeof requireOrgPermission>>;
+  try {
+    ctx = await requireOrgPermission(session.user.id, "candidate:manage");
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "Forbidden." }, { status: 403 });
+  }
   const maxBytes = await getNumberSetting("uploads.maxResumeBytes", 5 * 1024 * 1024);
 
   let formData: FormData;

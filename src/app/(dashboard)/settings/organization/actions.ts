@@ -15,6 +15,7 @@ const updateOrgSchema = z.object({
     .string()
     .trim()
     .max(200)
+    .refine((v) => v.length === 0 || /^https?:\/\//i.test(v), "Website must start with http:// or https://")
     .optional()
     .transform((v) => (v && v.length > 0 ? v : null)),
   industry: z
@@ -33,6 +34,7 @@ const updateOrgSchema = z.object({
     .string()
     .trim()
     .max(300)
+    .refine((v) => v.length === 0 || /^https?:\/\//i.test(v), "Logo URL must start with http:// or https://")
     .optional()
     .transform((v) => (v && v.length > 0 ? v : null)),
 });

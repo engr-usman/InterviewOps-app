@@ -494,19 +494,7 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
             <Button asChild variant="outline" size="sm">
               <Link href={`/interviews/${interview.id}/session`}>Open session</Link>
             </Button>
-            <Button type="button" variant="outline" size="sm" disabled>
-              Generate Report (placeholder)
-            </Button>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Reports</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Reports will be generated after the interview session is completed.
         </CardContent>
       </Card>
     </div>

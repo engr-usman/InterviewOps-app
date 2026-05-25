@@ -7,10 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SettingsForm } from "@/features/settings/settings-form";
 import { getBooleanSetting, getNumberSetting, getStringSetting } from "@/server/services/app-settings";
+import { getOrgContextOrThrow } from "@/server/services/org-context";
+import { hasPermission } from "@/server/services/rbac";
 
 export default async function SettingsPage() {
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
+
+  const ctx = await getOrgContextOrThrow(session.user.id);
+  const canManageTeam = hasPermission(ctx.role, "team:manage");
 
   const [aiEnabled, aiProvider, aiQuestionsEnabled, aiEvaluationEnabled, resumeParsingEnabled, jdAnalysisEnabled, maxResumeBytes] =
     await Promise.all([
@@ -31,11 +36,22 @@ export default async function SettingsPage() {
 
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Organization</CardTitle>
+          <CardTitle>Navigation</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-2">
           <Button asChild variant="outline">
-            <Link href="/settings/team">Team Management</Link>
+            <Link href="/settings">General</Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/settings/organization">Organization</Link>
+          </Button>
+          {canManageTeam ? (
+            <Button asChild variant="outline">
+              <Link href="/settings/team">Team Management</Link>
+            </Button>
+          ) : null}
+          <Button asChild variant="outline">
+            <Link href="/settings/billing">Billing</Link>
           </Button>
         </CardContent>
       </Card>

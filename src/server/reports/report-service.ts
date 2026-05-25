@@ -1,17 +1,24 @@
 import { prisma } from "@/lib/prisma";
 import type { InterviewReport, ReportFormat } from "@/lib/reports/types";
+import type { ReportType } from "@prisma/client";
 
 type Db = {
   interview: {
     findFirst: (args: unknown) => Promise<InterviewReportRow | null>;
+  };
+  report: {
+    findFirst: (args: unknown) => Promise<{ id: string } | null>;
+    create: (args: unknown) => Promise<{ id: string }>;
+    update: (args: unknown) => Promise<{ id: string }>;
   };
 };
 
 type InterviewReportRow = {
   id: string;
   status: string;
-  candidate: { id: string; fullName: string };
-  jobDescription: { id: string; title: string };
+  notesText: string | null;
+  candidate: { id: string; fullName: string; parsedResumeJson: unknown | null };
+  jobDescription: { id: string; title: string; parsedJdJson: unknown | null };
   scorecard: {
     recommendation: unknown;
     overallScore: number | null;
@@ -29,6 +36,46 @@ type InterviewReportRow = {
   }>;
 };
 
+function safeString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function extractSummaryFromParsedResume(parsedResumeJson: unknown | null): string | null {
+  const json = parsedResumeJson as { summary?: unknown } | null;
+  const s = safeString(json?.summary);
+  return s && s.trim().length > 0 ? s.trim() : null;
+}
+
+function extractSummaryFromParsedJd(parsedJdJson: unknown | null): string | null {
+  const json = parsedJdJson as { summary?: unknown } | null;
+  const s = safeString(json?.summary);
+  return s && s.trim().length > 0 ? s.trim() : null;
+}
+
+function linesToItems(value: unknown): string[] {
+  if (typeof value !== "string") return [];
+  return value
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => l.replace(/^[-*]\s+/, "").trim())
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const v of values) {
+    const key = v.trim().toLowerCase();
+    if (!key) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(v.trim());
+  }
+  return out;
+}
+
 export async function generateInterviewReportJson({
   interviewId,
   userId,
@@ -44,8 +91,9 @@ export async function generateInterviewReportJson({
     select: {
       id: true,
       status: true,
-      candidate: { select: { id: true, fullName: true } },
-      jobDescription: { select: { id: true, title: true } },
+      notesText: true,
+      candidate: { select: { id: true, fullName: true, parsedResumeJson: true } },
+      jobDescription: { select: { id: true, title: true, parsedJdJson: true } },
       scorecard: { select: { recommendation: true, overallScore: true, summaryText: true, scorecardJson: true } },
       questions: {
         orderBy: { order: "asc" },
@@ -63,6 +111,30 @@ export async function generateInterviewReportJson({
   });
 
   if (!interview) throw new Error("Interview not found.");
+
+  const scorecardJson = (interview.scorecard?.scorecardJson ?? null) as
+    | null
+    | {
+        strongAreas?: unknown;
+        hiringConcerns?: unknown;
+        finalRecommendation?: unknown;
+        aiSummaryApplied?: unknown;
+      };
+
+  const strengthsFromScorecard = linesToItems(scorecardJson?.strongAreas);
+  const weaknessesFromScorecard = linesToItems(scorecardJson?.hiringConcerns);
+
+  const strengthsFromQuestions = interview.questions
+    .map((q) => (q.evaluation?.metadataJson as { strengthsNotes?: unknown } | null)?.strengthsNotes)
+    .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+    .slice(0, 20);
+  const weaknessesFromQuestions = interview.questions
+    .map((q) => (q.evaluation?.metadataJson as { weaknessesNotes?: unknown } | null)?.weaknessesNotes)
+    .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+    .slice(0, 20);
+
+  const strengths = uniqueStrings([...strengthsFromScorecard, ...strengthsFromQuestions]);
+  const weaknesses = uniqueStrings([...weaknessesFromScorecard, ...weaknessesFromQuestions]);
 
   return {
     kind: "interview",
@@ -92,6 +164,20 @@ export async function generateInterviewReportJson({
       questionText: q.questionText,
       evaluation: q.evaluation ? q.evaluation : null,
     })),
+    details: {
+      candidateSummary: extractSummaryFromParsedResume(interview.candidate.parsedResumeJson),
+      jobDescriptionSummary: extractSummaryFromParsedJd(interview.jobDescription.parsedJdJson),
+      strengths,
+      weaknesses,
+      interviewerStrongAreas: safeString(scorecardJson?.strongAreas),
+      interviewerConcerns: safeString(scorecardJson?.hiringConcerns),
+      interviewerFinalNotes: safeString(scorecardJson?.finalRecommendation) ?? interview.notesText,
+      sourceHints: {
+        resumeParsed: Boolean(extractSummaryFromParsedResume(interview.candidate.parsedResumeJson)),
+        jdParsed: Boolean(extractSummaryFromParsedJd(interview.jobDescription.parsedJdJson)),
+        aiSummaryApplied: typeof scorecardJson?.aiSummaryApplied === "boolean" ? scorecardJson.aiSummaryApplied : undefined,
+      },
+    },
   };
 }
 
@@ -100,4 +186,52 @@ export async function exportReport(_report: unknown, format: ReportFormat): Prom
   if (format === "csv") throw new Error("CSV export is not implemented yet.");
   if (format === "pdf") throw new Error("PDF export is not implemented yet.");
   return JSON.stringify(_report, null, 2);
+}
+
+export async function generateAndUpsertInterviewReport({
+  interviewId,
+  organizationId,
+  userId,
+  type,
+  force,
+}: {
+  interviewId: string;
+  organizationId: string;
+  userId: string;
+  type: ReportType;
+  force: boolean;
+}): Promise<{ id: string }> {
+  const db = prisma as unknown as Db;
+  const payload = await generateInterviewReportJson({ interviewId, organizationId, userId });
+
+  const title = `${payload.interview.candidate.fullName} — ${payload.interview.jobDescription.title} (${type})`;
+
+  const existing = await db.report.findFirst({
+    where: { organizationId, interviewId, type },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true },
+  });
+
+  if (existing && !force) return { id: existing.id };
+
+  if (existing && force) {
+    const updated = await db.report.update({
+      where: { id: existing.id },
+      data: { title, reportJson: payload as never, organizationId },
+      select: { id: true },
+    });
+    return { id: updated.id };
+  }
+
+  const created = await db.report.create({
+    data: {
+      interviewId,
+      organizationId,
+      type,
+      title,
+      reportJson: payload as never,
+    },
+    select: { id: true },
+  });
+  return { id: created.id };
 }

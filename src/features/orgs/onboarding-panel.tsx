@@ -11,14 +11,23 @@ import { createOrganizationAction, setActiveOrganizationAction } from "@/app/(on
 
 export function OnboardingPanel({
   organizations,
+  initialMode = "default",
 }: {
   organizations: Array<{ id: string; name: string; slug: string; role: string }>;
+  initialMode?: "default" | "create";
 }) {
   const router = useRouter();
   const [orgName, setOrgName] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
+  const createInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  React.useEffect(() => {
+    if (initialMode !== "create") return;
+    const id = window.setTimeout(() => createInputRef.current?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [initialMode]);
 
   const onCreate = async () => {
     setError(null);
@@ -92,7 +101,13 @@ export function OnboardingPanel({
 
           <div className="space-y-2">
             <Label htmlFor="orgName">Create organization</Label>
-            <Input id="orgName" placeholder="e.g., Acme Inc" value={orgName} onChange={(e) => setOrgName(e.target.value)} />
+            <Input
+              ref={createInputRef}
+              id="orgName"
+              placeholder="e.g., Acme Inc"
+              value={orgName}
+              onChange={(e) => setOrgName(e.target.value)}
+            />
           </div>
 
           <Button type="button" onClick={onCreate} disabled={loading}>
@@ -103,4 +118,3 @@ export function OnboardingPanel({
     </div>
   );
 }
-

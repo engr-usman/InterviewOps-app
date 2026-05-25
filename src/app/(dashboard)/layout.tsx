@@ -13,5 +13,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
   if (!orgCtx) redirect("/onboarding");
 
   const userEmail = session.user?.email ?? "";
-  return <DashboardShell userEmail={userEmail}>{children}</DashboardShell>;
+  return (
+    <DashboardShell userEmail={userEmail} userId={session.user.id}>
+      {children}
+    </DashboardShell>
+  );
 }

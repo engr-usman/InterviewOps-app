@@ -12,6 +12,8 @@ import { InterviewAiQuestionsManager } from "@/features/interviews/interview-ai-
 import { getOrgContextOrThrow } from "@/server/services/org-context";
 import { hasPermission } from "@/server/services/rbac";
 import { hasFeature } from "@/server/services/feature-flags";
+import { generateInterviewReportAndRedirectAction } from "@/app/(dashboard)/reports/actions";
+import { ReportType } from "@prisma/client";
 
 type Db = {
   interview: { findFirst: (args: unknown) => Promise<InterviewDetailRow | null> };
@@ -62,8 +64,10 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
   const ctx = await getOrgContextOrThrow(session.user.id);
   const canConduct = hasPermission(ctx.role, "interview:conduct");
   const canManage = hasPermission(ctx.role, "interview:manage");
+  const canViewReports = hasPermission(ctx.role, "reports:view");
   const aiAllowed =
     canManage && hasPermission(ctx.role, "ai:use") ? await hasFeature(ctx.organization.id, "ai") : false;
+  const exportsAllowed = canViewReports ? await hasFeature(ctx.organization.id, "exports") : false;
 
   if (!canConduct) {
     return (
@@ -115,7 +119,7 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
 
   if (!interview) notFound();
 
-  const [interviewQuestions, evaluationScores, scorecard, questionsWithEval] = await Promise.all([
+  const [interviewQuestions, evaluationScores, scorecard, questionsWithEval, existingReport] = await Promise.all([
     prisma.interviewQuestion.findMany({
       where: { interviewId: interview.id },
       orderBy: { order: "asc" },
@@ -149,6 +153,13 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
       },
       take: 200,
     }),
+    canViewReports
+      ? prisma.report.findFirst({
+          where: { organizationId: ctx.organization.id, interviewId: interview.id, type: ReportType.FULL },
+          orderBy: { updatedAt: "desc" },
+          select: { id: true, updatedAt: true },
+        })
+      : Promise.resolve(null),
   ]);
 
   const topicsRows = canManage
@@ -372,6 +383,51 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
           ) : (
             <div className="text-muted-foreground">No scorecard saved yet. Use the session screen to evaluate and save.</div>
           )}
+
+          {canViewReports ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border p-3">
+              {existingReport ? (
+                <>
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/reports/${existingReport.id}`}>View Report</Link>
+                  </Button>
+                  {exportsAllowed ? (
+                    <>
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={`/api/reports/${existingReport.id}/json`}>Export JSON</Link>
+                      </Button>
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={`/api/reports/${existingReport.id}/csv`}>Export CSV</Link>
+                      </Button>
+                    </>
+                  ) : (
+                    <Button size="sm" variant="outline" disabled>
+                      Export (upgrade)
+                    </Button>
+                  )}
+                  <form action={generateInterviewReportAndRedirectAction}>
+                    <input type="hidden" name="interviewId" value={interview.id} />
+                    <input type="hidden" name="type" value="FULL" />
+                    <input type="hidden" name="force" value="1" />
+                    <input type="hidden" name="returnTo" value={`/interviews/${interview.id}`} />
+                    <Button type="submit" size="sm">
+                      Regenerate Report
+                    </Button>
+                  </form>
+                </>
+              ) : (
+                <form action={generateInterviewReportAndRedirectAction}>
+                  <input type="hidden" name="interviewId" value={interview.id} />
+                  <input type="hidden" name="type" value="FULL" />
+                  <input type="hidden" name="force" value="0" />
+                  <input type="hidden" name="returnTo" value={`/interviews/${interview.id}`} />
+                  <Button type="submit" size="sm">
+                    Generate Report
+                  </Button>
+                </form>
+              )}
+            </div>
+          ) : null}
 
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="rounded-md border p-4">

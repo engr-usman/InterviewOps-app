@@ -7,7 +7,9 @@ import { getServerAuthSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
 
-type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
+type ActionResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string; fieldErrors?: Partial<Record<"name" | "website" | "industry" | "companySize" | "logoUrl", string>> };
 
 const updateOrgSchema = z.object({
   name: z.string().trim().min(2).max(80),
@@ -47,7 +49,17 @@ export async function updateOrganizationProfileAction(input: unknown): Promise<A
   if (ctx.role !== "OWNER" && ctx.role !== "ADMIN") return { ok: false, error: "Insufficient permissions." };
 
   const parsed = updateOrgSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: "Invalid organization details." };
+  if (!parsed.success) {
+    const fieldErrors: Partial<Record<"name" | "website" | "industry" | "companySize" | "logoUrl", string>> = {};
+    for (const issue of parsed.error.issues) {
+      const key = issue.path[0];
+      if (key === "name" || key === "website" || key === "industry" || key === "companySize" || key === "logoUrl") {
+        if (!fieldErrors[key]) fieldErrors[key] = issue.message;
+      }
+    }
+    const firstMessage = parsed.error.issues[0]?.message ?? "Invalid organization details.";
+    return { ok: false, error: firstMessage, fieldErrors };
+  }
 
   const updated = await prisma.organization.update({
     where: { id: ctx.organization.id },

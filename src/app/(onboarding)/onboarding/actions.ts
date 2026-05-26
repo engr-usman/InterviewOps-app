@@ -84,6 +84,10 @@ export async function setActiveOrganizationAction(input: { organizationId: strin
     await setActiveOrganization(session.user.id, input.organizationId);
     revalidatePath("/onboarding");
     revalidatePath("/dashboard");
+    revalidatePath("/settings");
+    revalidatePath("/settings/organization");
+    revalidatePath("/settings/team");
+    revalidatePath("/settings/billing");
     return { ok: true, data: { ok: true } };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Failed to set organization." };

@@ -85,8 +85,13 @@ export async function generateCandidateAiAnalysis(candidateId: string, organizat
   if (!candidate) throw new Error("Candidate not found.");
 
   const ai = await getAiProviderOrThrow();
-  const parsedResume = candidate.parsedResumeJson as { rawTextPreview?: unknown } | null;
-  const resumeTextPreview = typeof parsedResume?.rawTextPreview === "string" ? parsedResume.rawTextPreview : null;
+  const parsedResume = candidate.parsedResumeJson as { rawTextPreview?: unknown; extractedTextPreview?: unknown } | null;
+  const resumeTextPreview =
+    typeof parsedResume?.extractedTextPreview === "string"
+      ? parsedResume.extractedTextPreview
+      : typeof parsedResume?.rawTextPreview === "string"
+        ? parsedResume.rawTextPreview
+        : null;
 
   const { system, prompt } = buildResumeAnalysisPrompt({
     candidateName: candidate.fullName,

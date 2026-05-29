@@ -97,6 +97,7 @@ export default async function OrganizationSettingsPage() {
             <>
               <Separator />
               <OrganizationSettingsForm
+                key={org.id}
                 initialValues={{
                   name: org.name,
                   website: org.website,
@@ -136,4 +137,3 @@ export default async function OrganizationSettingsPage() {
     </div>
   );
 }
-

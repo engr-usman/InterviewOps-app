@@ -23,6 +23,9 @@ export function OrganizationSettingsForm({
   const [pending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = React.useState<
+    Partial<Record<"name" | "website" | "industry" | "companySize" | "logoUrl", string>>
+  >({});
 
   const [name, setName] = React.useState(initialValues.name);
   const [website, setWebsite] = React.useState(initialValues.website ?? "");
@@ -33,6 +36,7 @@ export function OrganizationSettingsForm({
   const onSave = () => {
     setError(null);
     setNotice(null);
+    setFieldErrors({});
     startTransition(async () => {
       const result = await updateOrganizationProfileAction({
         name,
@@ -42,7 +46,8 @@ export function OrganizationSettingsForm({
         logoUrl,
       });
       if (!result.ok) {
-        setError(result.error);
+        setError(result.fieldErrors && Object.keys(result.fieldErrors).length > 0 ? null : result.error);
+        setFieldErrors(result.fieldErrors ?? {});
         return;
       }
       setNotice("Organization updated.");
@@ -58,28 +63,79 @@ export function OrganizationSettingsForm({
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="orgName">Organization name</Label>
-          <Input id="orgName" value={name} onChange={(e) => setName(e.target.value)} disabled={pending} />
+          <Input
+            id="orgName"
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              setFieldErrors((prev) => ({ ...prev, name: undefined }));
+            }}
+            disabled={pending}
+            aria-invalid={Boolean(fieldErrors.name)}
+          />
+          {fieldErrors.name ? <div className="text-sm text-destructive">{fieldErrors.name}</div> : null}
         </div>
         <div className="space-y-2">
           <Label htmlFor="orgWebsite">Website</Label>
-          <Input id="orgWebsite" value={website} onChange={(e) => setWebsite(e.target.value)} disabled={pending} />
+          <Input
+            id="orgWebsite"
+            placeholder="https://company.com"
+            value={website}
+            onChange={(e) => {
+              setWebsite(e.target.value);
+              setFieldErrors((prev) => ({ ...prev, website: undefined }));
+            }}
+            disabled={pending}
+            aria-invalid={Boolean(fieldErrors.website)}
+          />
+          <div className="text-sm text-muted-foreground">Must start with http:// or https://</div>
+          {fieldErrors.website ? <div className="text-sm text-destructive">{fieldErrors.website}</div> : null}
         </div>
         <div className="space-y-2">
           <Label htmlFor="orgIndustry">Industry</Label>
-          <Input id="orgIndustry" value={industry} onChange={(e) => setIndustry(e.target.value)} disabled={pending} />
+          <Input
+            id="orgIndustry"
+            value={industry}
+            onChange={(e) => {
+              setIndustry(e.target.value);
+              setFieldErrors((prev) => ({ ...prev, industry: undefined }));
+            }}
+            disabled={pending}
+            aria-invalid={Boolean(fieldErrors.industry)}
+          />
+          {fieldErrors.industry ? <div className="text-sm text-destructive">{fieldErrors.industry}</div> : null}
         </div>
         <div className="space-y-2">
           <Label htmlFor="orgCompanySize">Company size</Label>
           <Input
             id="orgCompanySize"
             value={companySize}
-            onChange={(e) => setCompanySize(e.target.value)}
+            onChange={(e) => {
+              setCompanySize(e.target.value);
+              setFieldErrors((prev) => ({ ...prev, companySize: undefined }));
+            }}
             disabled={pending}
+            aria-invalid={Boolean(fieldErrors.companySize)}
           />
+          {fieldErrors.companySize ? <div className="text-sm text-destructive">{fieldErrors.companySize}</div> : null}
         </div>
         <div className="space-y-2 sm:col-span-2">
           <Label htmlFor="orgLogoUrl">Logo URL</Label>
-          <Input id="orgLogoUrl" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} disabled={pending} />
+          <Input
+            id="orgLogoUrl"
+            placeholder="https://company.com/logo.png"
+            value={logoUrl}
+            onChange={(e) => {
+              setLogoUrl(e.target.value);
+              setFieldErrors((prev) => ({ ...prev, logoUrl: undefined }));
+            }}
+            disabled={pending}
+            aria-invalid={Boolean(fieldErrors.logoUrl)}
+          />
+          <div className="text-sm text-muted-foreground">
+            Optional. Must be a valid image URL starting with http:// or https://
+          </div>
+          {fieldErrors.logoUrl ? <div className="text-sm text-destructive">{fieldErrors.logoUrl}</div> : null}
         </div>
       </div>
 

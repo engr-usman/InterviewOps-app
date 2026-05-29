@@ -96,7 +96,7 @@ export function CandidateAiPanel({ candidateId, aiMetadataJson }: { candidateId:
               </div>
             </div>
             <div className="text-xs text-muted-foreground">
-              {analysis.provider ? `Provider: ${analysis.provider}` : null}
+              {analysis.provider && analysis.provider !== "mock" ? `Provider: ${analysis.provider}` : null}
               {analysis.generatedAt ? ` • Generated: ${analysis.generatedAt}` : null}
             </div>
           </div>
@@ -115,4 +115,3 @@ export function CandidateAiPanel({ candidateId, aiMetadataJson }: { candidateId:
     </Card>
   );
 }
-

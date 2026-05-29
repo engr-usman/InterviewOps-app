@@ -9,6 +9,8 @@ export type AppSettingKey =
   | "ai.questions.enabled"
   | "ai.evaluation.enabled"
   | "resumeParsing.enabled"
+  | "resumeParsing.aiResumeParser.enabled"
+  | "resumeParsing.fallbackParser.enabled"
   | "jdAnalysis.enabled"
   | "uploads.maxResumeBytes";
 

@@ -21,6 +21,8 @@ const settingsClientSchema = z.object({
   aiGeneratedQuestionsEnabled: z.boolean(),
   aiEvaluationSuggestionsEnabled: z.boolean(),
   resumeParsingEnabled: z.boolean(),
+  aiResumeParsingEnabled: z.boolean(),
+  resumeFallbackParserEnabled: z.boolean(),
   jdAnalysisEnabled: z.boolean(),
   maxResumeUploadMb: z.number().int().min(1).max(50),
 });
@@ -42,6 +44,8 @@ export function SettingsForm({ initialValues }: { initialValues: SettingsFormVal
   const aiGeneratedQuestionsEnabled = useWatch({ control: form.control, name: "aiGeneratedQuestionsEnabled" });
   const aiEvaluationSuggestionsEnabled = useWatch({ control: form.control, name: "aiEvaluationSuggestionsEnabled" });
   const resumeParsingEnabled = useWatch({ control: form.control, name: "resumeParsingEnabled" });
+  const aiResumeParsingEnabled = useWatch({ control: form.control, name: "aiResumeParsingEnabled" });
+  const resumeFallbackParserEnabled = useWatch({ control: form.control, name: "resumeFallbackParserEnabled" });
   const jdAnalysisEnabled = useWatch({ control: form.control, name: "jdAnalysisEnabled" });
 
   const onSubmit = form.handleSubmit(async (values) => {
@@ -155,6 +159,30 @@ export function SettingsForm({ initialValues }: { initialValues: SettingsFormVal
               onChange={(e) => form.setValue("resumeParsingEnabled", e.target.checked)}
             />
             <Label htmlFor="resumeParsingEnabled">Resume parsing enabled</Label>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <input
+              id="aiResumeParsingEnabled"
+              type="checkbox"
+              className="h-4 w-4"
+              checked={aiResumeParsingEnabled}
+              onChange={(e) => form.setValue("aiResumeParsingEnabled", e.target.checked)}
+              disabled={!aiEnabled || !resumeParsingEnabled}
+            />
+            <Label htmlFor="aiResumeParsingEnabled">AI-first resume parsing (mock provider by default)</Label>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <input
+              id="resumeFallbackParserEnabled"
+              type="checkbox"
+              className="h-4 w-4"
+              checked={resumeFallbackParserEnabled}
+              onChange={(e) => form.setValue("resumeFallbackParserEnabled", e.target.checked)}
+              disabled={!resumeParsingEnabled}
+            />
+            <Label htmlFor="resumeFallbackParserEnabled">Fallback resume parser enabled</Label>
           </div>
 
           <div className="flex items-center gap-3">

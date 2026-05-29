@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -7,6 +8,8 @@ import { prisma } from "@/lib/prisma";
 import { getNumberSetting } from "@/server/services/app-settings";
 import { requireOrgPermission } from "@/server/services/access";
 import { parseAndStoreCandidateResume } from "@/server/services/resume-service";
+
+export const runtime = "nodejs";
 
 type Db = {
   candidate: {
@@ -111,8 +114,30 @@ export async function POST(req: Request) {
   });
 
   try {
-    await parseAndStoreCandidateResume({ candidateId, organizationId: ctx.organization.id, absoluteFilePath: absolutePath });
+    const parsed = await parseAndStoreCandidateResume({
+      candidateId,
+      organizationId: ctx.organization.id,
+      absoluteFilePath: absolutePath,
+      mimeType,
+      fileName: originalName,
+    });
+    revalidatePath(`/candidates/${candidateId}`);
+    revalidatePath("/candidates");
+    if (!parsed.parsed) {
+      return NextResponse.json({
+        ok: true,
+        data: {
+          resumeFileUrl: urlPath,
+          resumeFileName: originalName,
+          resumeMimeType: mimeType,
+          parsed: false,
+        },
+        warning: parsed.warning ?? "Uploaded, but parsing failed.",
+      });
+    }
   } catch {
+    revalidatePath(`/candidates/${candidateId}`);
+    revalidatePath("/candidates");
     return NextResponse.json({
       ok: true,
       data: {

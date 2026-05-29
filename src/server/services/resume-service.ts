@@ -3,12 +3,12 @@ import type { Prisma } from "@prisma/client";
 import { readFile } from "node:fs/promises";
 
 import { prisma } from "@/lib/prisma";
-import { createAiProvider } from "@/lib/ai/provider";
-import { getBooleanSetting, getStringSetting } from "@/server/services/app-settings";
+import { getBooleanSetting } from "@/server/services/app-settings";
+import { parseResumeWithAiIfEnabled, type ResumeAnalysis } from "@/server/services/ai-resume-parser";
 import { slugifySkillName, uniqueStrings, upsertSkillsByName } from "@/server/services/skill-utils";
 
 type Db = {
-  candidate: { findFirst: (args: unknown) => Promise<{ id: string } | null> };
+  candidate: { findFirst: (args: unknown) => Promise<{ id: string; fullName: string } | null> };
 };
 
 type TxDb = {
@@ -35,7 +35,12 @@ export type ParsedResumeJson = {
   resumeFileName?: string | null;
   resumeFileSize?: number;
   resumeMimeType?: string | null;
+  resumeAnalysisStatus?: "success" | "failed" | "partial";
+  resumeAnalysisMethod?: "ai" | "fallback" | "hybrid";
+  parserWarnings?: string[];
   summary?: string;
+  candidateTitle?: string | null;
+  seniorityAssessment?: string | null;
   yearsOfExperience?: number;
   yearsOfExperienceText?: string;
   skills: string[];
@@ -46,6 +51,8 @@ export type ParsedResumeJson = {
   skillCategories: {
     cloudPlatforms: string[];
     awsServices: string[];
+    azureServices?: string[];
+    gcpServices?: string[];
     containersOrchestration: string[];
     infrastructureAsCode: string[];
     cicd: string[];
@@ -57,6 +64,16 @@ export type ParsedResumeJson = {
     sreReliability: string[];
   };
   leadershipIndicators: string[];
+  strengths?: string[];
+  possibleConcerns?: string[];
+  suggestedInterviewFocusAreas?: string[];
+  workExperience?: Array<{
+    company?: string | null;
+    role?: string | null;
+    startDate?: string | null;
+    endDate?: string | null;
+    highlights?: string[];
+  }>;
   companies: string[];
   education: string[];
   projects: string[];
@@ -870,54 +887,179 @@ async function buildResumeJson(
     extractionMethod?: string;
     extractionError?: string;
     candidateId?: string;
+    candidateName?: string;
     resumeFileName?: string | null;
     resumeFileSize?: number;
     resumeMimeType?: string | null;
   },
 ): Promise<ParsedResumeJson> {
   const parsed = parseResumeMock(rawText);
-  const provider = await getStringSetting("ai.provider", "mock");
-  const ai = createAiProvider({ provider: provider === "openai" || provider === "gemini" || provider === "claude" ? provider : "mock" });
-
+  const parsedAt = new Date().toISOString();
   const hasText = parsed.extractedTextPreview.trim().length > 0;
-  const summary = !extraction.ok
+  const fallbackEnabled = await getBooleanSetting("resumeParsing.fallbackParser.enabled", true);
+
+  const toYears = (value?: string | null): { years?: number; yearsText?: string } => {
+    if (!value) return {};
+    const clean = value.trim();
+    if (!clean) return {};
+    const m = clean.match(/(\d{1,2})/);
+    const n = m ? Number(m[1]) : undefined;
+    const years = typeof n === "number" && Number.isFinite(n) && n > 0 && n <= 60 ? n : undefined;
+    const yearsText = years ? (clean.includes("+") ? `${years}+` : `${years}`) : undefined;
+    return { years, yearsText };
+  };
+
+  const aiCategoriesToArrays = (a: ResumeAnalysis["skillCategories"]) => ({
+    cloudPlatforms: a.cloudPlatforms,
+    awsServices: a.awsServices,
+    azureServices: a.azureServices,
+    gcpServices: a.gcpServices,
+    containersOrchestration: a.containersOrchestration,
+    infrastructureAsCode: a.infrastructureAsCode,
+    cicd: a.cicd,
+    monitoringLogging: a.monitoringLogging,
+    securityDevsecops: a.securityDevSecOps,
+    databases: a.databases,
+    programmingScripting: a.programmingScripting,
+    sreReliability: a.sreReliability,
+    leadershipArchitecture: a.leadershipArchitecture,
+  });
+
+  const toParsedFromAi = (analysis: ResumeAnalysis, mode: "ai" | "hybrid", parserWarnings: string[]): ParsedResumeJson => {
+    const years = toYears(analysis.yearsOfExperience ?? null);
+    const categories = aiCategoriesToArrays(analysis.skillCategories);
+    const cloudPlatforms = uniqueStrings([...categories.cloudPlatforms, ...categories.gcpServices, ...categories.azureServices]);
+    const tools = uniqueStrings([
+      ...categories.awsServices,
+      ...categories.containersOrchestration,
+      ...categories.infrastructureAsCode,
+      ...categories.cicd,
+      ...categories.monitoringLogging,
+      ...categories.databases,
+      ...categories.programmingScripting,
+      ...categories.sreReliability,
+    ]);
+
+    const skills = uniqueStrings([
+      ...analysis.skills,
+      ...cloudPlatforms,
+      ...tools,
+      ...categories.securityDevsecops,
+      ...categories.leadershipArchitecture,
+    ]).slice(0, 120);
+
+    return {
+      ...parsed,
+      parsedAt,
+      candidateId: meta?.candidateId,
+      resumeFileName: meta?.resumeFileName ?? null,
+      resumeFileSize: meta?.resumeFileSize,
+      resumeMimeType: meta?.resumeMimeType ?? null,
+      summary: analysis.summary,
+      candidateTitle: analysis.candidateTitle ?? null,
+      yearsOfExperience: years.years,
+      yearsOfExperienceText: years.yearsText,
+      seniorityAssessment: analysis.seniorityAssessment ?? null,
+      skills,
+      cloudPlatforms,
+      tools,
+      certifications: uniqueStrings(analysis.certifications),
+      trainings: uniqueStrings(analysis.trainingsCommunity),
+      skillCategories: {
+        ...parsed.skillCategories,
+        cloudPlatforms: uniqueStrings(categories.cloudPlatforms),
+        awsServices: uniqueStrings(categories.awsServices),
+        azureServices: uniqueStrings(categories.azureServices),
+        gcpServices: uniqueStrings(categories.gcpServices),
+        containersOrchestration: uniqueStrings(categories.containersOrchestration),
+        infrastructureAsCode: uniqueStrings(categories.infrastructureAsCode),
+        cicd: uniqueStrings(categories.cicd),
+        monitoringLogging: uniqueStrings(categories.monitoringLogging),
+        securityDevsecops: uniqueStrings(categories.securityDevsecops),
+        databases: uniqueStrings(categories.databases),
+        programmingScripting: uniqueStrings(categories.programmingScripting),
+        leadershipArchitecture: uniqueStrings(categories.leadershipArchitecture),
+        sreReliability: uniqueStrings(categories.sreReliability),
+      },
+      leadershipIndicators: uniqueStrings(analysis.leadershipIndicators),
+      strengths: uniqueStrings(analysis.strengths),
+      possibleConcerns: uniqueStrings(analysis.possibleConcerns),
+      suggestedInterviewFocusAreas: uniqueStrings(analysis.suggestedInterviewFocusAreas),
+      workExperience: analysis.workExperience,
+      education: uniqueStrings(analysis.education),
+      resumeAnalysisStatus: analysis.extractionStatus,
+      resumeAnalysisMethod: mode,
+      parserWarnings: uniqueStrings(parserWarnings),
+      extractionStatus: extraction.ok ? "success" : "failed",
+      extractionError: extraction.ok ? undefined : meta?.extractionError ?? extraction.message ?? "Text extraction failed.",
+      extractionMethod: meta?.extractionMethod,
+      parser: { ...parsed.parser, provider: mode === "ai" ? "ai-resume-parser" : "hybrid-resume-parser" },
+      extraction,
+    };
+  };
+
+  const fallbackSummary = !extraction.ok
     ? extraction.message ?? "Resume uploaded successfully, but text extraction failed."
     : !hasText
       ? "Resume uploaded successfully, but text extraction produced no readable text."
-      : ai.id === "mock"
-        ? deterministicResumeSummary({
-            rawText,
-            yearsText: parsed.yearsOfExperienceText,
-            categories: parsed.skillCategories,
-            leadershipIndicators: parsed.leadershipIndicators,
-            certifications: parsed.certifications,
-          })
-        : (
-            await ai.generateText({
-              prompt: `Summarize this resume in 2-3 sentences for interview preparation.\n\n${parsed.extractedTextPreview}`,
-            })
-          ).text;
+      : deterministicResumeSummary({
+          rawText,
+          yearsText: parsed.yearsOfExperienceText,
+          categories: parsed.skillCategories,
+          leadershipIndicators: parsed.leadershipIndicators,
+          certifications: parsed.certifications,
+        });
 
-  const extractionStatus: ParsedResumeJson["extractionStatus"] = extraction.ok ? "success" : "failed";
-  const extractionError =
-    extraction.ok ? undefined : meta?.extractionError ?? extraction.message ?? "Text extraction failed.";
-  const extractionMethod = meta?.extractionMethod;
-  const parsedAt = new Date().toISOString();
-
-  return {
+  const fallbackResult: ParsedResumeJson = {
     ...parsed,
     parsedAt,
     candidateId: meta?.candidateId,
     resumeFileName: meta?.resumeFileName ?? null,
     resumeFileSize: meta?.resumeFileSize,
     resumeMimeType: meta?.resumeMimeType ?? null,
-    summary,
-    parser: { ...parsed.parser, provider: ai.id },
+    summary: fallbackSummary,
+    resumeAnalysisStatus: extraction.ok ? "success" : "failed",
+    resumeAnalysisMethod: "fallback",
+    parserWarnings: [],
+    extractionStatus: extraction.ok ? "success" : "failed",
+    extractionError: extraction.ok ? undefined : meta?.extractionError ?? extraction.message ?? "Text extraction failed.",
+    extractionMethod: meta?.extractionMethod,
+    parser: { ...parsed.parser, provider: "fallback-parser" },
     extraction,
-    extractionStatus,
-    extractionError,
-    extractionMethod,
   };
+
+  if (!extraction.ok || !hasText) return fallbackResult;
+
+  const aiResult = await parseResumeWithAiIfEnabled({
+    candidateId: meta?.candidateId ?? "unknown-candidate",
+    candidateName: meta?.candidateName ?? "Candidate",
+    extractedText: parsed.extractedTextPreview,
+    targetRole: null,
+  });
+
+  if (!aiResult.ok) {
+    const parserWarnings = [
+      ...fallbackResult.parserWarnings ?? [],
+      fallbackEnabled ? "AI resume parser unavailable. Parsed using fallback parser." : "AI resume parser unavailable.",
+    ];
+    return { ...fallbackResult, parserWarnings: uniqueStrings(parserWarnings) };
+  }
+
+  if (!fallbackEnabled) return toParsedFromAi(aiResult.analysis, "ai", aiResult.analysis.parserWarnings);
+
+  const hybrid = toParsedFromAi(aiResult.analysis, "hybrid", aiResult.analysis.parserWarnings);
+  hybrid.skills = uniqueStrings([...hybrid.skills, ...fallbackResult.skills]).slice(0, 120);
+  hybrid.certifications = uniqueStrings([...hybrid.certifications, ...fallbackResult.certifications]);
+  hybrid.trainings = uniqueStrings([...hybrid.trainings, ...fallbackResult.trainings]);
+  hybrid.leadershipIndicators = uniqueStrings([...hybrid.leadershipIndicators, ...fallbackResult.leadershipIndicators]);
+  hybrid.strengths = uniqueStrings([...(hybrid.strengths ?? []), ...(fallbackResult.strengths ?? [])]);
+  hybrid.possibleConcerns = uniqueStrings([...(hybrid.possibleConcerns ?? []), ...(fallbackResult.possibleConcerns ?? [])]);
+  hybrid.suggestedInterviewFocusAreas = uniqueStrings([
+    ...(hybrid.suggestedInterviewFocusAreas ?? []),
+    ...(fallbackResult.suggestedInterviewFocusAreas ?? []),
+  ]);
+  hybrid.parserWarnings = uniqueStrings([...(hybrid.parserWarnings ?? []), "Parsed using hybrid mode (AI + fallback)."]);
+  return hybrid;
 }
 
 export async function parseAndStoreCandidateResume({
@@ -941,7 +1083,7 @@ export async function parseAndStoreCandidateResume({
   const db = prisma as unknown as Db;
   const candidate = await db.candidate.findFirst({
     where: { id: candidateId, organizationId },
-    select: { id: true },
+    select: { id: true, fullName: true },
   });
   if (!candidate) throw new Error("Candidate not found.");
 
@@ -965,6 +1107,7 @@ export async function parseAndStoreCandidateResume({
     extractionMethod,
     extractionError: extractionError ? truncateForLog(extractionError) : undefined,
     candidateId,
+    candidateName: candidate.fullName,
     resumeFileName: fileName ?? null,
     resumeFileSize: buffer.length,
     resumeMimeType: mimeType ?? null,

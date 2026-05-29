@@ -43,6 +43,40 @@ function extractSkillHints(text: string): string[] {
   return Array.from(new Set(out)).slice(0, 6);
 }
 
+function matchesGoStrict(text: string): boolean {
+  const lower = text.toLowerCase();
+  if (/\bgolang\b/i.test(lower)) return true;
+  if (/\bgo\s+language\b/i.test(lower)) return true;
+  if (/\bgo\s+programming\b/i.test(lower)) return true;
+  return false;
+}
+
+function matchList(text: string, dictionary: string[]): string[] {
+  const out: string[] = [];
+  for (const item of dictionary) {
+    if (item === "Go") {
+      if (matchesGoStrict(text)) out.push("Go");
+      continue;
+    }
+    const escaped = item.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+    const re = new RegExp(item.length <= 3 ? `\\b${escaped}\\b` : `(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, "i");
+    if (re.test(text)) out.push(item);
+  }
+  return Array.from(new Set(out));
+}
+
+function parseYearsText(text: string): string | null {
+  const m =
+    text.match(/\b(\d{1,2})\s*([+＋])\s*(years?|yrs?)\b/i) ??
+    text.match(/\b(over|more\s+than)\s+(\d{1,2})\s+(years?|yrs?)\b/i) ??
+    text.match(/\b(\d{1,2})\s+(years?|yrs?)\s+.*?\bexperience\b/i);
+  if (!m) return null;
+  const n = Number(m[2] ?? m[1]);
+  if (!Number.isFinite(n) || n <= 0 || n > 60) return null;
+  const isPlus = Boolean(m[1]?.toLowerCase().includes("over") || m[1]?.toLowerCase().includes("more") || m[2] === "+" || m[2] === "＋");
+  return `${n}${isPlus ? "+" : ""} years`;
+}
+
 function summarizePlainText(input: string): string {
   const cleaned = input.replace(/\s+/g, " ").trim();
   if (cleaned.length < 80) return "Not enough readable text to summarize.";
@@ -146,6 +180,131 @@ export class MockAiProvider implements AiProvider {
           hiringRecommendationReasoning: "Recommend moving forward if role matches hands-on ops needs.",
           finalVerdictExplanation: "Positive signal overall; validate depth in next round.",
           suggestedRecommendation: null,
+        });
+      } else if (task.includes("Parse a resume into structured resume analysis")) {
+        const resumeText =
+          typeof parsed === "object" && parsed !== null ? ((parsed as { resumeText?: unknown }).resumeText as unknown) : null;
+        const raw = typeof resumeText === "string" ? resumeText : "";
+
+        const years = parseYearsText(raw);
+
+        const cloudPlatforms = matchList(raw, ["AWS", "Azure", "GCP", "Google Cloud"]);
+        const awsServices = matchList(raw, ["AWS Lambda", "Lambda", "API Gateway", "DynamoDB", "EventBridge", "S3", "IAM", "CloudWatch", "SQS", "SNS"]);
+        const containersOrchestration = matchList(raw, ["Kubernetes", "Docker", "Helm"]);
+        const infrastructureAsCode = matchList(raw, ["Terraform", "CloudFormation", "Pulumi", "Ansible"]);
+        const cicd = matchList(raw, ["CI/CD", "GitHub Actions", "Jenkins", "CircleCI"]);
+        const monitoringLogging = matchList(raw, ["Prometheus", "Grafana", "ELK", "Elastic Stack", "Kibana", "Elasticsearch"]);
+        const securityDevSecOps = matchList(raw, ["DevSecOps", "Security Hardening", "Security"]);
+        const databases = matchList(raw, ["PostgreSQL", "MySQL", "Redis", "MongoDB", "DynamoDB"]);
+        const programmingScripting = matchList(raw, ["Python", "Node.js", "TypeScript", "Java", "Go"]);
+        const sreReliability = matchList(raw, [
+          "SRE",
+          "Reliability Engineering",
+          "Incident Response",
+          "SLO",
+          "SLI",
+          "Error Budgets",
+          "Disaster Recovery",
+          "High Availability",
+          "Cost Optimization",
+        ]);
+        const leadershipArchitecture = matchList(raw, [
+          "Cloud Architecture",
+          "Architecture",
+          "Leadership",
+          "Mentoring",
+          "AWS Well-Architected",
+          "Serverless",
+          "Multi-account strategy",
+        ]);
+
+        const certifications = matchList(raw, [
+          "Certified Kubernetes Administrator (CKA)",
+          "AWS Certified Cloud Practitioner",
+          "AWS Certified Developer – Associate",
+          "AWS Certified Solutions Architect – Associate",
+          "AWS Certified Solutions Architect – Professional",
+          "AWS Technical Professional",
+          "AWS Community Builder",
+          "Google Professional Cloud Architect",
+        ]);
+
+        const trainingsCommunity = matchList(raw, ["AWS Community Builder", "Linux Foundation", "Google Developer Groups", "GDG"]);
+        const leadershipIndicators = matchList(raw, [
+          "Team leadership",
+          "Mentoring",
+          "Architecture design",
+          "AWS Well-Architected",
+          "Cost optimization",
+          "Disaster recovery",
+          "High availability",
+          "Incident response",
+          "DevSecOps",
+          "Multi-account strategy",
+          "Cloud transformation",
+          "Training delivery",
+          "Community speaking",
+        ]);
+
+        const skills = Array.from(
+          new Set(
+            [
+              ...cloudPlatforms,
+              ...awsServices,
+              ...containersOrchestration,
+              ...infrastructureAsCode,
+              ...cicd,
+              ...monitoringLogging,
+              ...securityDevSecOps,
+              ...databases,
+              ...programmingScripting,
+              ...sreReliability,
+              ...leadershipArchitecture,
+            ]
+              .map((s) => s.trim())
+              .filter(Boolean),
+          ),
+        ).slice(0, 80);
+
+        const extractionStatus = raw.trim().length > 120 ? "success" : raw.trim().length > 0 ? "partial" : "failed";
+        const summaryBase =
+          skills.length > 0
+            ? `Resume indicates experience across ${skills.slice(0, 8).join(", ")}.`
+            : "Resume text extracted, but no technical skills detected yet.";
+        const summary = years ? `${summaryBase} Reported experience: ${years}.` : summaryBase;
+
+        text = jsonResponse({
+          summary,
+          candidateTitle: null,
+          yearsOfExperience: years,
+          seniorityAssessment: null,
+          skills,
+          skillCategories: {
+            cloudPlatforms,
+            awsServices,
+            azureServices: [],
+            gcpServices: [],
+            containersOrchestration,
+            infrastructureAsCode,
+            cicd,
+            monitoringLogging,
+            securityDevSecOps,
+            databases,
+            programmingScripting,
+            sreReliability,
+            leadershipArchitecture,
+          },
+          certifications,
+          trainingsCommunity,
+          leadershipIndicators,
+          workExperience: [],
+          education: [],
+          strengths: leadershipIndicators.slice(0, 6),
+          possibleConcerns: [],
+          suggestedInterviewFocusAreas: sreReliability.slice(0, 6),
+          extractionStatus,
+          extractionMethod: "ai",
+          parserWarnings: [],
         });
       } else {
         text = jsonResponse({ ok: true, message: "JSON response (unrecognized task)." });

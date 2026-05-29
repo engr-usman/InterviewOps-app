@@ -17,13 +17,24 @@ export default async function SettingsPage() {
   const ctx = await getOrgContextOrThrow(session.user.id);
   const canManageTeam = hasPermission(ctx.role, "team:manage");
 
-  const [aiEnabled, aiProvider, aiQuestionsEnabled, aiEvaluationEnabled, resumeParsingEnabled, jdAnalysisEnabled, maxResumeBytes] =
-    await Promise.all([
-      getBooleanSetting("ai.enabled", false),
+  const [
+    aiEnabled,
+    aiProvider,
+    aiQuestionsEnabled,
+    aiEvaluationEnabled,
+    resumeParsingEnabled,
+    aiResumeParsingEnabled,
+    resumeFallbackParserEnabled,
+    jdAnalysisEnabled,
+    maxResumeBytes,
+  ] = await Promise.all([
+    getBooleanSetting("ai.enabled", false),
     getStringSetting("ai.provider", "mock"),
-      getBooleanSetting("ai.questions.enabled", false),
-      getBooleanSetting("ai.evaluation.enabled", false),
+    getBooleanSetting("ai.questions.enabled", false),
+    getBooleanSetting("ai.evaluation.enabled", false),
     getBooleanSetting("resumeParsing.enabled", true),
+    getBooleanSetting("resumeParsing.aiResumeParser.enabled", false),
+    getBooleanSetting("resumeParsing.fallbackParser.enabled", true),
     getBooleanSetting("jdAnalysis.enabled", true),
     getNumberSetting("uploads.maxResumeBytes", 5 * 1024 * 1024),
   ]);
@@ -65,6 +76,8 @@ export default async function SettingsPage() {
           aiGeneratedQuestionsEnabled: aiQuestionsEnabled,
           aiEvaluationSuggestionsEnabled: aiEvaluationEnabled,
           resumeParsingEnabled,
+          aiResumeParsingEnabled,
+          resumeFallbackParserEnabled,
           jdAnalysisEnabled,
           maxResumeUploadMb,
         }}

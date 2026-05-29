@@ -87,6 +87,8 @@ function pickStrongestSkillsFromCategories(input: {
   categories: {
     cloudPlatforms: string[];
     awsServices: string[];
+    azureServices?: string[];
+    gcpServices?: string[];
     containersOrchestration: string[];
     infrastructureAsCode: string[];
     cicd: string[];
@@ -108,6 +110,8 @@ function pickStrongestSkillsFromCategories(input: {
     "containersOrchestration",
     "cicd",
     "cloudPlatforms",
+    "gcpServices",
+    "azureServices",
     "awsServices",
     "programmingScripting",
     "databases",
@@ -116,7 +120,7 @@ function pickStrongestSkillsFromCategories(input: {
   const normalized = new Map<string, string>();
   const byCategory = categoryOrder.map((key) => ({
     key,
-    items: uniqueCaseInsensitive(input.categories[key]).sort((a, b) => skillPriority(b) - skillPriority(a)),
+    items: uniqueCaseInsensitive(input.categories[key] ?? []).sort((a, b) => skillPriority(b) - skillPriority(a)),
   }));
 
   const out: string[] = [];
@@ -202,6 +206,8 @@ function skillPriority(name: string): number {
 type CandidateDetailPageCategories = {
   cloudPlatforms: string[];
   awsServices: string[];
+  azureServices?: string[];
+  gcpServices?: string[];
   containersOrchestration: string[];
   infrastructureAsCode: string[];
   cicd: string[];
@@ -373,6 +379,8 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
     ? {
         cloudPlatforms: asStringArray(categoriesRoot.cloudPlatforms),
         awsServices: asStringArray(categoriesRoot.awsServices),
+        azureServices: asStringArray(categoriesRoot.azureServices),
+        gcpServices: asStringArray(categoriesRoot.gcpServices),
         containersOrchestration: asStringArray(categoriesRoot.containersOrchestration),
         infrastructureAsCode: asStringArray(categoriesRoot.infrastructureAsCode),
         cicd: asStringArray(categoriesRoot.cicd),

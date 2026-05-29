@@ -16,6 +16,8 @@ const settingsSchema = z.object({
   aiGeneratedQuestionsEnabled: z.boolean(),
   aiEvaluationSuggestionsEnabled: z.boolean(),
   resumeParsingEnabled: z.boolean(),
+  aiResumeParsingEnabled: z.boolean(),
+  resumeFallbackParserEnabled: z.boolean(),
   jdAnalysisEnabled: z.boolean(),
   maxResumeUploadMb: z.number().int().min(1).max(50),
 });
@@ -37,6 +39,8 @@ export async function updateSettingsAction(input: SettingsFormValues): Promise<A
     { key: "ai.questions.enabled", value: parsed.data.aiGeneratedQuestionsEnabled },
     { key: "ai.evaluation.enabled", value: parsed.data.aiEvaluationSuggestionsEnabled },
     { key: "resumeParsing.enabled", value: parsed.data.resumeParsingEnabled },
+    { key: "resumeParsing.aiResumeParser.enabled", value: parsed.data.aiResumeParsingEnabled },
+    { key: "resumeParsing.fallbackParser.enabled", value: parsed.data.resumeFallbackParserEnabled },
     { key: "jdAnalysis.enabled", value: parsed.data.jdAnalysisEnabled },
     { key: "uploads.maxResumeBytes", value: maxBytes },
   ];

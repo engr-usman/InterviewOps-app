@@ -24,7 +24,7 @@ export default async function NewJobDescriptionPage() {
           title="Job description details"
           description="Add the role context used for interview prep and evaluation."
           submitLabel="Create job description"
-          onSubmitAction={createJobDescriptionAction}
+          action={createJobDescriptionAction}
         />
       ) : (
         <Card>

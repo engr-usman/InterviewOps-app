@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { InterviewQuestionTable } from "@/features/interviews/interview-question-table";
 import { InterviewQuestionsManager } from "@/features/interviews/interview-questions-manager";
 import { InterviewAiQuestionsManager } from "@/features/interviews/interview-ai-questions-manager";
+import { ReopenInterviewButton } from "@/features/interviews/reopen-interview-button";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
 import { hasPermission } from "@/server/services/rbac";
 import { hasFeature } from "@/server/services/feature-flags";
@@ -26,6 +27,7 @@ type InterviewDetailRow = {
   scheduledEndAt: Date | null;
   meetingUrl: string | null;
   notesText: string | null;
+  metadataJson: unknown;
   createdAt: Date;
   updatedAt: Date;
   candidate: {
@@ -57,7 +59,13 @@ function formatDateTime(value: Date) {
   }).format(value);
 }
 
-export default async function InterviewDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function InterviewDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<{ reportError?: string; sessionError?: string }>;
+}) {
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
 
@@ -81,6 +89,7 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
   }
 
   const { id } = await params;
+  const { reportError, sessionError } = (await searchParams) ?? {};
 
   const interview = await (prisma as unknown as Db).interview.findFirst({
     where: { id, organizationId: ctx.organization.id },
@@ -91,6 +100,7 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
       scheduledEndAt: true,
       meetingUrl: true,
       notesText: true,
+      metadataJson: true,
       createdAt: true,
       updatedAt: true,
       candidate: {
@@ -191,29 +201,79 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
   const evaluatedCount = scored.length;
   const totalCount = interviewQuestions.length;
   const completionPct = totalCount === 0 ? 0 : Math.round((evaluatedCount / totalCount) * 100);
+  const noQuestions = interviewQuestions.length === 0;
+  const isScheduled = interview.status === "SCHEDULED";
+  const isInProgress = interview.status === "IN_PROGRESS";
+  const isCompleted = interview.status === "COMPLETED";
+  const canStartSession = !(isScheduled && noQuestions);
+
+  const reportBlockers: string[] = [];
+  if (interview.status !== "COMPLETED") {
+    reportBlockers.push("Complete the interview and save a scorecard before generating a report.");
+  }
+  if (interviewQuestions.length === 0) {
+    reportBlockers.push("Add questions before generating a report.");
+  }
+  if (evaluatedCount === 0) {
+    reportBlockers.push("Evaluate at least one question before generating a report.");
+  }
+  if (!scorecard) {
+    reportBlockers.push("Save a scorecard before generating a report.");
+  }
+  const canGenerateReport = reportBlockers.length === 0;
   const aiCandidateSummary = (interview.candidate.aiMetadataJson as { resumeAnalysis?: unknown } | null)?.resumeAnalysis as
     | null
     | { profileSummary?: unknown };
   const aiJdSummary = (interview.jobDescription.aiMetadataJson as { jdAnalysis?: unknown } | null)?.jdAnalysis as
     | null
     | { summary?: unknown };
+  const reopenedAtRaw = (interview.metadataJson as { reopenedAt?: unknown } | null)?.reopenedAt;
+  const reopenedAtParsed =
+    typeof reopenedAtRaw === "string" && reopenedAtRaw.trim().length > 0 ? new Date(reopenedAtRaw) : null;
+  const reopenedAt = reopenedAtParsed && !Number.isNaN(reopenedAtParsed.getTime()) ? reopenedAtParsed : null;
+  const showOutdatedReportWarning =
+    Boolean(reopenedAt && existingReport?.updatedAt && existingReport.updatedAt < reopenedAt);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader title="Interview" description="Interview details and placeholders for session artifacts." />
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col gap-2 sm:items-end">
+          {sessionError ? <div className="text-sm text-destructive">{sessionError}</div> : null}
+          {!canStartSession ? (
+            <div className="text-sm text-muted-foreground">
+              Add questions before starting the interview, or use ad-hoc interview mode.
+            </div>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
           <Button asChild variant="outline">
             <Link href="/interviews">Back to Interviews</Link>
           </Button>
-          <Button asChild variant="outline">
-            <Link href={`/interviews/${interview.id}/session`}>Start Interview Session</Link>
-          </Button>
+          {isCompleted ? (
+            <Button asChild variant="outline">
+              <Link href={`/interviews/${interview.id}/session`}>View Session</Link>
+            </Button>
+          ) : canStartSession ? (
+            <Button asChild variant="outline">
+              <Link href={`/interviews/${interview.id}/session`}>{isInProgress ? "Continue Interview Session" : "Start Interview Session"}</Link>
+            </Button>
+          ) : (
+            <Button variant="outline" disabled>
+              Start Interview Session
+            </Button>
+          )}
+          {isCompleted && canManage ? <ReopenInterviewButton interviewId={interview.id} /> : null}
+          {!canStartSession ? (
+            <Button asChild variant="outline">
+              <Link href={`/interviews/${interview.id}/session?adhoc=1`}>Ad-hoc Mode</Link>
+            </Button>
+          ) : null}
           {canManage ? (
             <Button asChild>
               <Link href={`/interviews/${interview.id}/edit`}>Edit Interview</Link>
             </Button>
           ) : null}
+          </div>
         </div>
       </div>
 
@@ -386,6 +446,20 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
 
           {canViewReports ? (
             <div className="flex flex-wrap items-center gap-2 rounded-md border p-3">
+              {reportError ? <div className="w-full text-sm text-destructive">{reportError}</div> : null}
+              {showOutdatedReportWarning ? (
+                <div className="w-full rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                  This interview was reopened after report generation. Existing reports may be outdated. Regenerate the report
+                  after completing the interview again.
+                </div>
+              ) : null}
+              {!canGenerateReport ? (
+                <div className="w-full space-y-1 text-sm text-muted-foreground">
+                  {reportBlockers.map((msg) => (
+                    <div key={msg}>{msg}</div>
+                  ))}
+                </div>
+              ) : null}
               {existingReport ? (
                 <>
                   <Button asChild size="sm" variant="outline">
@@ -410,7 +484,7 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
                     <input type="hidden" name="type" value="FULL" />
                     <input type="hidden" name="force" value="1" />
                     <input type="hidden" name="returnTo" value={`/interviews/${interview.id}`} />
-                    <Button type="submit" size="sm">
+                    <Button type="submit" size="sm" disabled={!canGenerateReport}>
                       Regenerate Report
                     </Button>
                   </form>
@@ -421,7 +495,7 @@ export default async function InterviewDetailPage({ params }: { params: Promise<
                   <input type="hidden" name="type" value="FULL" />
                   <input type="hidden" name="force" value="0" />
                   <input type="hidden" name="returnTo" value={`/interviews/${interview.id}`} />
-                  <Button type="submit" size="sm">
+                  <Button type="submit" size="sm" disabled={!canGenerateReport}>
                     Generate Report
                   </Button>
                 </form>

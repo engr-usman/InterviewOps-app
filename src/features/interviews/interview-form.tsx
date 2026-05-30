@@ -27,7 +27,7 @@ type InterviewFormProps = {
   candidates: CandidateOption[];
   jobDescriptions: JobDescriptionOption[];
   initialValues?: Partial<InterviewFormInputValues>;
-  onSubmitAction: (values: InterviewFormInputValues) => Promise<
+  action: (values: InterviewFormInputValues) => Promise<
     | { ok: true; data: { id: string } }
     | {
         ok: false;
@@ -44,7 +44,7 @@ export function InterviewForm({
   candidates,
   jobDescriptions,
   initialValues,
-  onSubmitAction,
+  action,
   submitLabel,
   title,
   description,
@@ -67,7 +67,7 @@ export function InterviewForm({
 
   const onSubmit = form.handleSubmit(async (values) => {
     setFormError(null);
-    const result = await onSubmitAction(values);
+    const result = await action(values);
     if (!result.ok) {
       setFormError(result.error);
       return;

@@ -53,7 +53,7 @@ export default async function NewInterviewPage() {
           initialValues={{
             status: InterviewStatus.DRAFT,
           }}
-          onSubmitAction={createInterviewAction}
+          action={createInterviewAction}
         />
       ) : (
         <Card>

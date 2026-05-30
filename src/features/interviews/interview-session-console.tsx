@@ -20,7 +20,13 @@ import {
   type SaveQuestionEvaluationValues,
   type SaveScorecardValues,
 } from "@/features/interviews/interview-evaluation-schema";
-import { saveInterviewQuestionEvaluationAction, saveInterviewScorecardAction } from "@/app/(dashboard)/interviews/session-actions";
+import {
+  addAdHocInterviewQuestionAction,
+  completeInterviewAction,
+  saveInterviewQuestionEvaluationAction,
+  saveInterviewScorecardAction,
+} from "@/app/(dashboard)/interviews/session-actions";
+import { addAdHocQuestionSchema, type AddAdHocQuestionValues } from "@/features/interviews/interview-question-schema";
 import {
   acceptFollowUpQuestionAction,
   generateEvaluationInsightAction,
@@ -126,6 +132,9 @@ export function InterviewSessionConsole({
   const [aiInsight, setAiInsight] = React.useState<Record<string, unknown> | null>(null);
   const [aiInsightLoading, setAiInsightLoading] = React.useState(false);
   const [aiSummaryLoading, setAiSummaryLoading] = React.useState(false);
+  const [isCompletingInterview, setIsCompletingInterview] = React.useState(false);
+  const [isAddingAdHoc, setIsAddingAdHoc] = React.useState(false);
+  const [showAdHoc, setShowAdHoc] = React.useState(false);
 
   const selectedQuestion = React.useMemo(
     () => (selectedId ? questions.find((q) => q.id === selectedId) ?? null : null),
@@ -145,7 +154,7 @@ export function InterviewSessionConsole({
   const evaluationForm = useForm<SaveQuestionEvaluationValues>({
     resolver: zodResolver(saveQuestionEvaluationSchema),
     defaultValues: {
-      score: undefined,
+      score: Number.NaN,
       status: "PENDING",
       strengthsNotes: "",
       weaknessesNotes: "",
@@ -153,11 +162,24 @@ export function InterviewSessionConsole({
     },
   });
 
+  const evaluationBusy = evaluationForm.formState.isSubmitting;
+  const isReadOnly = interviewStatus === "COMPLETED";
+  const readOnlyTooltip = "Interview is completed. Session is in read-only mode.";
+
+  const adHocForm = useForm<AddAdHocQuestionValues>({
+    resolver: zodResolver(addAdHocQuestionSchema),
+    defaultValues: {
+      questionText: "",
+      topic: "",
+      difficulty: "",
+    } as unknown as AddAdHocQuestionValues,
+  });
+
   React.useEffect(() => {
     if (!selectedQuestion) return;
     const meta = getEvalMeta(selectedQuestion);
     evaluationForm.reset({
-      score: selectedQuestion.evaluation?.score ?? undefined,
+      score: typeof selectedQuestion.evaluation?.score === "number" ? selectedQuestion.evaluation.score : Number.NaN,
       status: getEvalStatus(selectedQuestion),
       strengthsNotes: meta.strengthsNotes,
       weaknessesNotes: meta.weaknessesNotes,
@@ -209,6 +231,7 @@ export function InterviewSessionConsole({
   );
 
   const setSelectedQuestionId = (nextId: string) => {
+    if (evaluationBusy) return;
     if (evaluationForm.formState.isDirty) {
       const ok = window.confirm("You have unsaved changes for this question. Continue without saving?");
       if (!ok) return;
@@ -223,6 +246,10 @@ export function InterviewSessionConsole({
 
   const onSaveEvaluation = evaluationForm.handleSubmit(async (values) => {
     if (!selectedQuestion) return;
+    if (isReadOnly) {
+      setError(readOnlyTooltip);
+      return;
+    }
     setError(null);
     setNotice(null);
     const result = await saveInterviewQuestionEvaluationAction(interviewId, selectedQuestion.id, values);
@@ -230,11 +257,71 @@ export function InterviewSessionConsole({
       setError(result.error);
       return;
     }
+
+    const normalizedScore = typeof values.score === "number" && !Number.isNaN(values.score) ? values.score : Number.NaN;
+    evaluationForm.reset({
+      score: normalizedScore,
+      status: values.status,
+      strengthsNotes: values.strengthsNotes ?? "",
+      weaknessesNotes: values.weaknessesNotes ?? "",
+      overallNotes: values.overallNotes ?? "",
+    });
+
     setNotice("Evaluation saved.");
     router.refresh();
   });
 
+  const allEvaluated = React.useMemo(() => {
+    if (questions.length === 0) return false;
+    return questions.every((q) => getEvalStatus(q) === "EVALUATED");
+  }, [questions]);
+
+  const canCompleteInterview = interviewStatus === "IN_PROGRESS" && Boolean(scorecard) && allEvaluated;
+
+  const onCompleteInterview = async () => {
+    if (!canCompleteInterview) return;
+    setError(null);
+    setNotice(null);
+    setIsCompletingInterview(true);
+    try {
+      const result = await completeInterviewAction(interviewId);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      router.push(`/interviews/${interviewId}`);
+      router.refresh();
+    } finally {
+      setIsCompletingInterview(false);
+    }
+  };
+
+  const onAddAdHocQuestion = adHocForm.handleSubmit(async (values) => {
+    if (isReadOnly) {
+      setError(readOnlyTooltip);
+      return;
+    }
+    setError(null);
+    setNotice(null);
+    setIsAddingAdHoc(true);
+    try {
+      const result = await addAdHocInterviewQuestionAction(interviewId, values);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      adHocForm.reset({ questionText: "", topic: "", difficulty: "" } as unknown as AddAdHocQuestionValues);
+      setShowAdHoc(false);
+      setNotice("Question added.");
+      router.replace(`/interviews/${interviewId}/session?q=${encodeURIComponent(result.data.id)}`);
+      router.refresh();
+    } finally {
+      setIsAddingAdHoc(false);
+    }
+  });
+
   const onNextQuestion = async () => {
+    if (evaluationBusy) return;
     if (!selectedQuestion) return;
     const ordered = [...questions].sort((a, b) => a.order - b.order);
     const indexInOrdered = ordered.findIndex((q) => q.id === selectedQuestion.id);
@@ -254,6 +341,10 @@ export function InterviewSessionConsole({
 
   const onSuggestFollowUp = async () => {
     if (!selectedQuestion) return;
+    if (isReadOnly) {
+      setError(readOnlyTooltip);
+      return;
+    }
     setError(null);
     setNotice(null);
     setFollowUps(null);
@@ -286,6 +377,10 @@ export function InterviewSessionConsole({
 
   const onGenerateAiInsight = async () => {
     if (!selectedQuestion) return;
+    if (isReadOnly) {
+      setError(readOnlyTooltip);
+      return;
+    }
     setError(null);
     setNotice(null);
     setAiInsight(null);
@@ -304,12 +399,20 @@ export function InterviewSessionConsole({
   };
 
   const onApplyAiSuggestedScore = () => {
+    if (isReadOnly) {
+      setError(readOnlyTooltip);
+      return;
+    }
     const raw = aiInsight?.suggestedScore;
     if (typeof raw !== "number" || Number.isNaN(raw)) return;
     evaluationForm.setValue("score", raw, { shouldDirty: true });
   };
 
   const onSaveScorecard = scorecardForm.handleSubmit(async (values) => {
+    if (isReadOnly) {
+      setError(readOnlyTooltip);
+      return;
+    }
     setError(null);
     setNotice(null);
     const result = await saveInterviewScorecardAction(interviewId, values);
@@ -322,6 +425,10 @@ export function InterviewSessionConsole({
   });
 
   const onGenerateAiSummary = async () => {
+    if (isReadOnly) {
+      setError(readOnlyTooltip);
+      return;
+    }
     setError(null);
     setNotice(null);
     setAiSummaryLoading(true);
@@ -364,6 +471,12 @@ export function InterviewSessionConsole({
 
   return (
     <div className="space-y-6">
+      {isReadOnly ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <div className="font-medium">Interview Completed</div>
+          <div className="text-emerald-800">This interview has been completed and is now available in read-only mode.</div>
+        </div>
+      ) : null}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-sm text-muted-foreground">Interview session</div>
@@ -371,9 +484,15 @@ export function InterviewSessionConsole({
           <div className="text-sm text-muted-foreground">{jobDescription.title}</div>
         </div>
         <div className="flex items-center gap-2">
-          <Button asChild variant="outline">
-            <Link href={`/interviews/${interviewId}`}>Back to Interview Detail</Link>
-          </Button>
+          {evaluationBusy ? (
+            <Button variant="outline" disabled>
+              Back to Interview Detail
+            </Button>
+          ) : (
+            <Button asChild variant="outline">
+              <Link href={`/interviews/${interviewId}`}>Back to Interview Detail</Link>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -427,6 +546,12 @@ export function InterviewSessionConsole({
                   <span>{typeof progress.technicalAverage === "number" ? progress.technicalAverage.toFixed(2) : "—"}</span>
                 </div>
               </div>
+
+              {canCompleteInterview ? (
+                <Button onClick={onCompleteInterview} disabled={isCompletingInterview || evaluationBusy || isAddingAdHoc}>
+                  {isCompletingInterview ? "Completing..." : "Complete Interview"}
+                </Button>
+              ) : null}
             </CardContent>
           </Card>
 
@@ -436,6 +561,75 @@ export function InterviewSessionConsole({
               <CardDescription>Select a question to evaluate.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
+              {!isReadOnly ? (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setShowAdHoc((v) => !v)}
+                      disabled={evaluationBusy || isAddingAdHoc}
+                    >
+                      Add Ad-hoc Question
+                    </Button>
+                  </div>
+
+                  {showAdHoc ? (
+                    <form onSubmit={onAddAdHocQuestion} className="space-y-3 rounded-md border p-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="adHocQuestionText">Question</Label>
+                        <textarea
+                          id="adHocQuestionText"
+                          className={cn(
+                            "min-h-[90px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                          )}
+                          {...adHocForm.register("questionText")}
+                        />
+                        {adHocForm.formState.errors.questionText?.message ? (
+                          <p className="text-sm text-destructive">
+                            {String(adHocForm.formState.errors.questionText.message)}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="adHocTopic">Topic (optional)</Label>
+                          <Input id="adHocTopic" {...adHocForm.register("topic")} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="adHocDifficulty">Difficulty (optional)</Label>
+                          <select id="adHocDifficulty" className={selectClassName} {...adHocForm.register("difficulty")}>
+                            <option value="">—</option>
+                            <option value="BEGINNER">Beginner</option>
+                            <option value="JUNIOR">Junior</option>
+                            <option value="MID_LEVEL">Mid-level</option>
+                            <option value="SENIOR">Senior</option>
+                            <option value="LEAD">Lead</option>
+                            <option value="HEAD_ARCHITECT">Head Architect</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button type="submit" disabled={isAddingAdHoc || evaluationBusy}>
+                          {isAddingAdHoc ? "Adding..." : "Add Question"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setShowAdHoc(false)}
+                          disabled={isAddingAdHoc}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </form>
+                  ) : null}
+                </>
+              ) : null}
+
               {questions.length === 0 ? (
                 <div className="text-sm text-muted-foreground">No interview questions yet.</div>
               ) : (
@@ -460,7 +654,9 @@ export function InterviewSessionConsole({
                           className={cn(
                             "w-full rounded-md border px-3 py-2 text-left text-sm transition",
                             isSelected ? "border-primary" : "hover:bg-muted/40",
+                            evaluationBusy ? "opacity-60" : null,
                           )}
+                          disabled={evaluationBusy}
                           onClick={() => setSelectedQuestionId(q.id)}
                         >
                           <div className="flex items-center justify-between gap-3">
@@ -506,7 +702,7 @@ export function InterviewSessionConsole({
                     ) : null}
                   </div>
 
-                  <form onSubmit={onSaveEvaluation} className="space-y-4">
+                  <form onSubmit={isReadOnly ? (e) => e.preventDefault() : onSaveEvaluation} className="space-y-4">
                     <div className="grid gap-4 sm:grid-cols-3">
                       <div className="space-y-2">
                         <Label htmlFor="score">Score (1–10)</Label>
@@ -515,6 +711,7 @@ export function InterviewSessionConsole({
                           type="number"
                           min={1}
                           max={10}
+                          disabled={evaluationBusy || isReadOnly}
                           {...evaluationForm.register("score", { valueAsNumber: true })}
                         />
                         {evaluationForm.formState.errors.score?.message ? (
@@ -523,7 +720,12 @@ export function InterviewSessionConsole({
                       </div>
                       <div className="space-y-2 sm:col-span-2">
                         <Label htmlFor="status">Status</Label>
-                        <select id="status" className={selectClassName} {...evaluationForm.register("status")}>
+                        <select
+                          id="status"
+                          className={selectClassName}
+                          disabled={evaluationBusy || isReadOnly}
+                          {...evaluationForm.register("status")}
+                        >
                           <option value="PENDING">Pending</option>
                           <option value="IN_REVIEW">In Review</option>
                           <option value="EVALUATED">Evaluated</option>
@@ -540,6 +742,7 @@ export function InterviewSessionConsole({
                             "min-h-[110px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                           )}
+                          readOnly={isReadOnly}
                           {...evaluationForm.register("strengthsNotes")}
                         />
                       </div>
@@ -551,6 +754,7 @@ export function InterviewSessionConsole({
                             "min-h-[110px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                           )}
+                          readOnly={isReadOnly}
                           {...evaluationForm.register("weaknessesNotes")}
                         />
                       </div>
@@ -564,6 +768,7 @@ export function InterviewSessionConsole({
                           "min-h-[110px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background",
                           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                         )}
+                        readOnly={isReadOnly}
                         {...evaluationForm.register("overallNotes")}
                       />
                     </div>
@@ -572,10 +777,12 @@ export function InterviewSessionConsole({
                     {notice ? <p className="text-sm text-muted-foreground">{notice}</p> : null}
 
                     <div className="flex flex-wrap items-center gap-2">
-                      <Button type="submit" disabled={evaluationForm.formState.isSubmitting}>
-                        {evaluationForm.formState.isSubmitting ? "Saving..." : "Save Evaluation"}
-                      </Button>
-                      <Button type="button" variant="outline" onClick={onNextQuestion}>
+                      {!isReadOnly ? (
+                        <Button type="submit" disabled={evaluationBusy}>
+                          {evaluationBusy ? "Saving..." : "Save Evaluation"}
+                        </Button>
+                      ) : null}
+                      <Button type="button" variant="outline" onClick={onNextQuestion} disabled={evaluationBusy}>
                         Next Question
                       </Button>
                     </div>
@@ -586,15 +793,32 @@ export function InterviewSessionConsole({
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="text-sm font-medium">AI assistant</div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <Button type="button" variant="outline" onClick={onSuggestFollowUp} disabled={followUpLoading}>
-                            {followUpLoading ? "Generating..." : "Suggest Follow-up"}
-                          </Button>
-                          <Button type="button" variant="outline" onClick={onGenerateAiInsight} disabled={aiInsightLoading}>
-                            {aiInsightLoading ? "Generating..." : "Generate AI Insight"}
-                          </Button>
-                          <Button type="button" variant="outline" onClick={onApplyAiSuggestedScore} disabled={!aiInsight}>
-                            Apply Suggested Score
-                          </Button>
+                          {isReadOnly ? (
+                            <>
+                              <span title={readOnlyTooltip}>
+                                <Button type="button" variant="outline" disabled>
+                                  Suggest Follow-up
+                                </Button>
+                              </span>
+                              <span title={readOnlyTooltip}>
+                                <Button type="button" variant="outline" disabled>
+                                  Generate AI Insight
+                                </Button>
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <Button type="button" variant="outline" onClick={onSuggestFollowUp} disabled={followUpLoading}>
+                                {followUpLoading ? "Generating..." : "Suggest Follow-up"}
+                              </Button>
+                              <Button type="button" variant="outline" onClick={onGenerateAiInsight} disabled={aiInsightLoading}>
+                                {aiInsightLoading ? "Generating..." : "Generate AI Insight"}
+                              </Button>
+                              <Button type="button" variant="outline" onClick={onApplyAiSuggestedScore} disabled={!aiInsight}>
+                                Apply Suggested Score
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </div>
 
@@ -607,9 +831,17 @@ export function InterviewSessionConsole({
                                 <div className="font-medium">{f.questionText}</div>
                                 {f.intent ? <div className="mt-1 text-sm text-muted-foreground">{f.intent}</div> : null}
                                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                                  <Button type="button" size="sm" onClick={() => onAcceptFollowUp(f.questionText)}>
-                                    Accept
-                                  </Button>
+                                  {isReadOnly ? (
+                                    <span title={readOnlyTooltip}>
+                                      <Button type="button" size="sm" disabled>
+                                        Accept
+                                      </Button>
+                                    </span>
+                                  ) : (
+                                    <Button type="button" size="sm" onClick={() => onAcceptFollowUp(f.questionText)}>
+                                      Accept
+                                    </Button>
+                                  )}
                                   <Button type="button" size="sm" variant="outline" onClick={() => setFollowUps(null)}>
                                     Discard
                                   </Button>
@@ -702,16 +934,29 @@ export function InterviewSessionConsole({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" variant="outline" onClick={onGenerateAiSummary} disabled={aiSummaryLoading}>
-                  {aiSummaryLoading ? "Generating..." : "Generate AI Summary"}
-                </Button>
+                {isReadOnly ? (
+                  <span title={readOnlyTooltip}>
+                    <Button type="button" variant="outline" disabled>
+                      Generate AI Summary
+                    </Button>
+                  </span>
+                ) : (
+                  <Button type="button" variant="outline" onClick={onGenerateAiSummary} disabled={aiSummaryLoading}>
+                    {aiSummaryLoading ? "Generating..." : "Generate AI Summary"}
+                  </Button>
+                )}
               </div>
 
-              <form onSubmit={onSaveScorecard} className="space-y-4">
+              <form onSubmit={isReadOnly ? (e) => e.preventDefault() : onSaveScorecard} className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="recommendation">Recommendation</Label>
-                    <select id="recommendation" className={selectClassName} {...scorecardForm.register("recommendation")}>
+                    <select
+                      id="recommendation"
+                      className={selectClassName}
+                      disabled={isReadOnly}
+                      {...scorecardForm.register("recommendation")}
+                    >
                       <option value="">—</option>
                       <option value="STRONG_HIRE">STRONG_HIRE</option>
                       <option value="HIRE">HIRE</option>
@@ -728,6 +973,7 @@ export function InterviewSessionConsole({
                       type="number"
                       min={1}
                       max={10}
+                      disabled={isReadOnly}
                       {...scorecardForm.register("communicationScore", { valueAsNumber: true })}
                     />
                   </div>
@@ -739,6 +985,7 @@ export function InterviewSessionConsole({
                       type="number"
                       min={1}
                       max={10}
+                      disabled={isReadOnly}
                       {...scorecardForm.register("problemSolvingScore", { valueAsNumber: true })}
                     />
                   </div>
@@ -750,6 +997,7 @@ export function InterviewSessionConsole({
                       type="number"
                       min={1}
                       max={10}
+                      disabled={isReadOnly}
                       {...scorecardForm.register("cloudDevOpsScore", { valueAsNumber: true })}
                     />
                   </div>
@@ -763,6 +1011,7 @@ export function InterviewSessionConsole({
                       "min-h-[110px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                     )}
+                    readOnly={isReadOnly}
                     {...scorecardForm.register("interviewSummary")}
                   />
                 </div>
@@ -776,6 +1025,7 @@ export function InterviewSessionConsole({
                         "min-h-[110px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                       )}
+                      readOnly={isReadOnly}
                       {...scorecardForm.register("strongAreas")}
                     />
                   </div>
@@ -787,6 +1037,7 @@ export function InterviewSessionConsole({
                         "min-h-[110px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                       )}
+                      readOnly={isReadOnly}
                       {...scorecardForm.register("hiringConcerns")}
                     />
                   </div>
@@ -800,6 +1051,7 @@ export function InterviewSessionConsole({
                       "min-h-[110px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                     )}
+                    readOnly={isReadOnly}
                     {...scorecardForm.register("finalRecommendation")}
                   />
                 </div>
@@ -808,11 +1060,13 @@ export function InterviewSessionConsole({
                   <p className="text-sm text-destructive">{String(scorecardForm.formState.errors.communicationScore.message)}</p>
                 ) : null}
 
-                <div className="flex items-center gap-2">
-                  <Button type="submit" disabled={scorecardForm.formState.isSubmitting}>
-                    {scorecardForm.formState.isSubmitting ? "Saving..." : "Save Scorecard"}
-                  </Button>
-                </div>
+                {!isReadOnly ? (
+                  <div className="flex items-center gap-2">
+                    <Button type="submit" disabled={scorecardForm.formState.isSubmitting}>
+                      {scorecardForm.formState.isSubmitting ? "Saving..." : "Save Scorecard"}
+                    </Button>
+                  </div>
+                ) : null}
               </form>
             </CardContent>
           </Card>

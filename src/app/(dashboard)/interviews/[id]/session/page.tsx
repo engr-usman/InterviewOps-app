@@ -42,7 +42,13 @@ type Db = {
   interview: { findFirst: (args: unknown) => Promise<InterviewSessionRow | null> };
 };
 
-export default async function InterviewSessionPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function InterviewSessionPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<{ adhoc?: string }>;
+}) {
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
 
@@ -57,6 +63,7 @@ export default async function InterviewSessionPage({ params }: { params: Promise
   }
 
   const { id } = await params;
+  const { adhoc } = (await searchParams) ?? {};
 
   const interview = await (prisma as unknown as Db).interview.findFirst({
     where: { id, organizationId: ctx.organization.id },
@@ -113,10 +120,47 @@ export default async function InterviewSessionPage({ params }: { params: Promise
 
   if (!interview) notFound();
 
+  const allowAdHocStart = adhoc === "1";
+  if (interview.status === "SCHEDULED" && interview.questions.length === 0 && !allowAdHocStart) {
+    redirect(
+      `/interviews/${interview.id}?sessionError=${encodeURIComponent(
+        "Add questions before starting the interview, or use ad-hoc interview mode.",
+      )}`,
+    );
+  }
+
+  let effectiveStatus = interview.status;
+  if (interview.status === "SCHEDULED" || interview.status === "DRAFT") {
+    const now = new Date();
+    const updatedWithStartedAt = await prisma.interview.updateMany({
+      where: {
+        id: interview.id,
+        organizationId: ctx.organization.id,
+        status: { in: ["SCHEDULED", "DRAFT"] },
+        startedAt: null,
+      },
+      data: {
+        status: "IN_PROGRESS",
+        startedAt: now,
+      },
+    });
+    if (updatedWithStartedAt.count === 0) {
+      await prisma.interview.updateMany({
+        where: {
+          id: interview.id,
+          organizationId: ctx.organization.id,
+          status: { in: ["SCHEDULED", "DRAFT"] },
+        },
+        data: { status: "IN_PROGRESS" },
+      });
+    }
+    effectiveStatus = "IN_PROGRESS";
+  }
+
   return (
     <InterviewSessionConsole
       interviewId={interview.id}
-      interviewStatus={interview.status}
+      interviewStatus={effectiveStatus}
       candidate={interview.candidate}
       jobDescription={interview.jobDescription}
       questions={interview.questions.map((q) => ({

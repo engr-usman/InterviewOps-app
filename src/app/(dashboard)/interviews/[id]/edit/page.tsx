@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
 import { updateInterviewAction } from "@/app/(dashboard)/interviews/actions";
 import { InterviewForm } from "@/features/interviews/interview-form";
+import type { InterviewFormInputValues } from "@/features/interviews/interview-schema";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
 import { hasPermission } from "@/server/services/rbac";
 
@@ -79,6 +80,12 @@ export default async function EditInterviewPage({ params }: { params: Promise<{ 
   }
 
   if (!interview) notFound();
+  const interviewId = interview.id;
+
+  async function action(values: InterviewFormInputValues) {
+    "use server";
+    return updateInterviewAction(interviewId, values);
+  }
 
   const candidates: Array<{ id: string; fullName: string }> = await db.candidate.findMany({
     where: { organizationId: ctx.organization.id },
@@ -111,7 +118,7 @@ export default async function EditInterviewPage({ params }: { params: Promise<{ 
           meetingUrl: interview.meetingUrl ?? "",
           notesText: interview.notesText ?? "",
         }}
-        onSubmitAction={(values) => updateInterviewAction(interview.id, values)}
+        action={action}
       />
     </div>
   );

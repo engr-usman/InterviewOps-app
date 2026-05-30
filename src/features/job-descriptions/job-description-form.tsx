@@ -21,7 +21,7 @@ type JobDescriptionFormMode = "create" | "edit";
 type JobDescriptionFormProps = {
   mode: JobDescriptionFormMode;
   initialValues?: Partial<JobDescriptionFormInputValues>;
-  onSubmitAction: (values: JobDescriptionFormInputValues) => Promise<
+  action: (values: JobDescriptionFormInputValues) => Promise<
     | { ok: true; data: { id: string } }
     | {
         ok: false;
@@ -36,7 +36,7 @@ type JobDescriptionFormProps = {
 export function JobDescriptionForm({
   mode,
   initialValues,
-  onSubmitAction,
+  action,
   submitLabel,
   title,
   description,
@@ -58,7 +58,7 @@ export function JobDescriptionForm({
 
   const onSubmit = form.handleSubmit(async (values) => {
     setFormError(null);
-    const result = await onSubmitAction(values);
+    const result = await action(values);
     if (!result.ok) {
       setFormError(result.error);
       return;

@@ -204,6 +204,19 @@ export async function generateAndUpsertInterviewReport({
   const db = prisma as unknown as Db;
   const payload = await generateInterviewReportJson({ interviewId, organizationId, userId });
 
+  const missingRequirements: string[] = [];
+  if (payload.interview.status !== "COMPLETED") missingRequirements.push("status");
+  if (payload.questions.length === 0) missingRequirements.push("questions");
+  if (payload.questions.every((q) => !q.evaluation || typeof q.evaluation.score !== "number")) {
+    missingRequirements.push("evaluations");
+  }
+  if (!payload.scorecard) missingRequirements.push("scorecard");
+  if (missingRequirements.length > 0) {
+    throw new Error(
+      "Report can only be generated after the interview is completed with evaluated questions and a saved scorecard.",
+    );
+  }
+
   const title = `${payload.interview.candidate.fullName} — ${payload.interview.jobDescription.title} (${type})`;
 
   const warnings: string[] = [];

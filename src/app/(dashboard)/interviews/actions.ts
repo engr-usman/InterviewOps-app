@@ -125,3 +125,71 @@ export async function deleteInterviewAction(id: string): Promise<ActionResult<{ 
   revalidatePath("/interviews");
   return { ok: true, data: { id } };
 }
+
+export async function reopenInterviewAction(interviewId: string): Promise<ActionResult<{ id: string }>> {
+  const session = await getServerAuthSession();
+  if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
+
+  const ctx = await requireOrgPermission(session.user.id, "interview:manage");
+
+  try {
+    const now = new Date();
+    const result = await prisma.$transaction(async (tx) => {
+      const interview = await tx.interview.findFirst({
+        where: { id: interviewId, organizationId: ctx.organization.id },
+        select: { id: true, status: true, metadataJson: true },
+      });
+      if (!interview) throw new Error("Interview not found.");
+      if (interview.status !== "COMPLETED") throw new Error("Only completed interviews can be reopened.");
+
+      const existingMeta = interview.metadataJson;
+      const baseMeta =
+        existingMeta && typeof existingMeta === "object" && !Array.isArray(existingMeta)
+          ? (existingMeta as Record<string, unknown>)
+          : {};
+      const existingCountRaw = baseMeta.reopenCount;
+      const existingCount = typeof existingCountRaw === "number" && Number.isFinite(existingCountRaw) ? existingCountRaw : 0;
+      const reopenCount = existingCount + 1;
+
+      await tx.interview.update({
+        where: { id: interviewId },
+        data: {
+          status: "IN_PROGRESS",
+          endedAt: null,
+          metadataJson: {
+            ...baseMeta,
+            reopenedAt: now.toISOString(),
+            reopenedById: session.user.id,
+            reopenCount,
+          } as never,
+        },
+        select: { id: true },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: session.user.id,
+          action: "INTERVIEW_REOPENED",
+          entityType: "Interview",
+          entityId: interviewId,
+          metadataJson: {
+            previousStatus: "COMPLETED",
+            newStatus: "IN_PROGRESS",
+            reopenCount,
+          } as never,
+        },
+        select: { id: true },
+      });
+
+      return { id: interviewId };
+    });
+
+    revalidatePath(`/interviews/${interviewId}/session`);
+    revalidatePath(`/interviews/${interviewId}`);
+    revalidatePath("/interviews");
+    return { ok: true, data: result };
+  } catch (error) {
+    if (error instanceof Error) return { ok: false, error: error.message };
+    return { ok: false, error: "Failed to reopen interview." };
+  }
+}

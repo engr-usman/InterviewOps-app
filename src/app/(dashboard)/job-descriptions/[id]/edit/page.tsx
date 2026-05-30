@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
 import { updateJobDescriptionAction } from "@/app/(dashboard)/job-descriptions/actions";
 import { JobDescriptionForm } from "@/features/job-descriptions/job-description-form";
+import type { JobDescriptionFormInputValues } from "@/features/job-descriptions/job-description-schema";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
 import { hasPermission } from "@/server/services/rbac";
 
@@ -55,6 +56,12 @@ export default async function EditJobDescriptionPage({
   });
 
   if (!jd) notFound();
+  const jdId = jd.id;
+
+  async function action(values: JobDescriptionFormInputValues) {
+    "use server";
+    return updateJobDescriptionAction(jdId, values);
+  }
 
   return (
     <div className="space-y-6">
@@ -73,7 +80,7 @@ export default async function EditJobDescriptionPage({
             descriptionText: jd.descriptionText ?? "",
             requirementsText: jd.requirementsText ?? "",
           }}
-          onSubmitAction={(values) => updateJobDescriptionAction(jd.id, values)}
+          action={action}
         />
       ) : (
         <Card>

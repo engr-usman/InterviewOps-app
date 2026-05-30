@@ -28,3 +28,11 @@ export const addQuestionSchema = z.object({
 });
 
 export type AddQuestionValues = z.infer<typeof addQuestionSchema>;
+
+export const addAdHocQuestionSchema = z.object({
+  questionText: z.string().trim().min(5, "Question text is required."),
+  topic: z.union([z.string().trim().min(1), z.literal("")]).optional(),
+  difficulty: z.union([z.nativeEnum(DifficultyLevel), z.literal("")]).optional(),
+});
+
+export type AddAdHocQuestionValues = z.infer<typeof addAdHocQuestionSchema>;

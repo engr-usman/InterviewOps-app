@@ -306,6 +306,7 @@ model Candidate {
   interviews   Interview[]
   skillMatches CandidateSkillMatch[]
 
+  @@unique([organizationId, email])
   @@index([email])
   @@index([createdById])
   @@index([organizationId])

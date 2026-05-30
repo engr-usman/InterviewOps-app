@@ -23,12 +23,20 @@ export type CandidateFormValues = {
   githubUrl?: string;
 };
 
+export function normalizeEmail(email?: string | null): string | null {
+  if (typeof email !== "string") return null;
+  const trimmed = email.trim();
+  if (!trimmed) return null;
+  return trimmed.toLowerCase();
+}
+
 export function normalizeCandidateFormValues(input: CandidateFormInputValues): CandidateFormValues {
   const normalized: CandidateFormValues = {
     fullName: input.fullName.trim(),
   };
 
-  if (input.email && input.email !== "") normalized.email = input.email;
+  const normalizedEmail = normalizeEmail(input.email);
+  if (normalizedEmail) normalized.email = normalizedEmail;
   if (input.phone && input.phone !== "") normalized.phone = input.phone;
   if (input.location && input.location !== "") normalized.location = input.location;
   if (input.seniorityLevel) normalized.seniorityLevel = input.seniorityLevel;

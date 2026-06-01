@@ -24,6 +24,7 @@ type InterviewReportRow = {
     overallScore: number | null;
     summaryText: string | null;
     scorecardJson: unknown;
+    metadataJson: unknown;
   } | null;
   questions: Array<{
     id: string;
@@ -94,7 +95,7 @@ export async function generateInterviewReportJson({
       notesText: true,
       candidate: { select: { id: true, fullName: true, parsedResumeJson: true } },
       jobDescription: { select: { id: true, title: true, parsedJdJson: true } },
-      scorecard: { select: { recommendation: true, overallScore: true, summaryText: true, scorecardJson: true } },
+      scorecard: { select: { recommendation: true, overallScore: true, summaryText: true, scorecardJson: true, metadataJson: true } },
       questions: {
         orderBy: { order: "asc" },
         select: {
@@ -119,6 +120,12 @@ export async function generateInterviewReportJson({
         hiringConcerns?: unknown;
         finalRecommendation?: unknown;
         aiSummaryApplied?: unknown;
+        technicalAverage?: unknown;
+        communicationScore?: unknown;
+        problemSolvingScore?: unknown;
+        cloudDevOpsScore?: unknown;
+        interviewerTechnicalAssessment?: unknown;
+        overallScore?: unknown;
       };
 
   const strengthsFromScorecard = linesToItems(scorecardJson?.strongAreas);
@@ -136,11 +143,30 @@ export async function generateInterviewReportJson({
   const strengths = uniqueStrings([...strengthsFromScorecard, ...strengthsFromQuestions]);
   const weaknesses = uniqueStrings([...weaknessesFromScorecard, ...weaknessesFromQuestions]);
 
+  const scMeta = (interview.scorecard?.metadataJson ?? null) as { manualOverride?: unknown; autoRecommendation?: unknown } | null;
+  const breakdown = interview.scorecard
+    ? {
+        technicalAverage: typeof scorecardJson?.technicalAverage === "number" ? scorecardJson.technicalAverage : null,
+        communication: typeof scorecardJson?.communicationScore === "number" ? scorecardJson.communicationScore : null,
+        problemSolving: typeof scorecardJson?.problemSolvingScore === "number" ? scorecardJson.problemSolvingScore : null,
+        interviewerTechnicalAssessment:
+          typeof scorecardJson?.interviewerTechnicalAssessment === "number"
+            ? scorecardJson.interviewerTechnicalAssessment
+            : typeof scorecardJson?.cloudDevOpsScore === "number"
+              ? scorecardJson.cloudDevOpsScore
+              : null,
+        overallScore: interview.scorecard.overallScore ?? null,
+        recommendation: interview.scorecard.recommendation ? String(interview.scorecard.recommendation) : null,
+        autoRecommendation: typeof scMeta?.autoRecommendation === "string" ? scMeta.autoRecommendation : null,
+        manualOverride: scMeta?.manualOverride === true,
+      }
+    : null;
+
   return {
     kind: "interview",
     generatedAt: new Date().toISOString(),
     generatedByUserId: userId,
-    version: "1",
+    version: "3",
     interview: {
       id: interview.id,
       status: String(interview.status),
@@ -177,6 +203,7 @@ export async function generateInterviewReportJson({
         jdParsed: Boolean(extractSummaryFromParsedJd(interview.jobDescription.parsedJdJson)),
         aiSummaryApplied: typeof scorecardJson?.aiSummaryApplied === "boolean" ? scorecardJson.aiSummaryApplied : undefined,
       },
+      evaluationBreakdown: breakdown ?? undefined,
     },
   };
 }

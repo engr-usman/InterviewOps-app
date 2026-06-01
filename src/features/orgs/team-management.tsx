@@ -24,7 +24,12 @@ export function TeamManagement({
   const [notice, setNotice] = React.useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = React.useState("");
   const [inviteRole, setInviteRole] = React.useState<OrgRole>("VIEWER");
-  const [inviteUrl, setInviteUrl] = React.useState<string | null>(null);
+  const [inviteData, setInviteData] = React.useState<{
+    inviteUrl: string;
+    email: string;
+    role: OrgRole;
+    expiresAt: string;
+  } | null>(null);
   const [loading, setLoading] = React.useState(false);
 
   const selectClassName = cn(
@@ -35,7 +40,7 @@ export function TeamManagement({
   const onInvite = async () => {
     setError(null);
     setNotice(null);
-    setInviteUrl(null);
+    setInviteData(null);
     setLoading(true);
     try {
       const result = await createInviteTokenAction({ email: inviteEmail, role: inviteRole });
@@ -43,10 +48,20 @@ export function TeamManagement({
         setError(result.error);
         return;
       }
-      setInviteUrl(result.data.inviteUrl);
+      setInviteData(result.data);
       setNotice("Invite link created. Share it with the member.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const onCopyInviteLink = async () => {
+    if (!inviteData) return;
+    try {
+      await navigator.clipboard.writeText(inviteData.inviteUrl);
+      setNotice("Invite link copied.");
+    } catch {
+      setError("Unable to copy link. Please copy it manually.");
     }
   };
 
@@ -104,7 +119,7 @@ export function TeamManagement({
       </div>
 
       <div className="rounded-lg border p-4">
-        <div className="text-sm font-medium">Invite member (placeholder)</div>
+        <div className="text-sm font-medium">Invite member</div>
         <div className="mt-3 grid gap-3 sm:grid-cols-3">
           <div className="sm:col-span-2 space-y-2">
             <Label htmlFor="inviteEmail">Email</Label>
@@ -126,10 +141,29 @@ export function TeamManagement({
             {loading ? "Working..." : "Create Invite Link"}
           </Button>
         </div>
-        {inviteUrl ? (
-          <div className="mt-3 rounded-md bg-muted p-3 text-xs">
-            <div className="text-muted-foreground">Invite URL</div>
-            <div className="break-all">{inviteUrl}</div>
+        {inviteData ? (
+          <div className="mt-3 space-y-2 rounded-md bg-muted p-3 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-muted-foreground">Invite URL</div>
+              <Button type="button" variant="outline" size="sm" onClick={onCopyInviteLink} disabled={loading}>
+                Copy link
+              </Button>
+            </div>
+            <div className="break-all">{inviteData.inviteUrl}</div>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <div>
+                <div className="text-muted-foreground">Invited email</div>
+                <div className="font-medium">{inviteData.email}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Role</div>
+                <div className="font-medium">{inviteData.role}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Expiry</div>
+                <div className="font-medium">{new Date(inviteData.expiresAt).toLocaleString()}</div>
+              </div>
+            </div>
           </div>
         ) : null}
       </div>
@@ -169,4 +203,3 @@ export function TeamManagement({
     </div>
   );
 }
-

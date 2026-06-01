@@ -7,12 +7,30 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
+import { hasPermission } from "@/server/services/rbac";
 
 export default async function BillingSettingsPage() {
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
 
   const ctx = await getOrgContextOrThrow(session.user.id);
+  const canManageBilling = hasPermission(ctx.role, "billing:manage") || hasPermission(ctx.role, "org:manage");
+
+  if (!canManageBilling) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <PageHeader title="Billing" description="Plans, usage, and invoices (placeholder)" />
+          <Button asChild variant="outline">
+            <Link href="/dashboard">Back to Dashboard</Link>
+          </Button>
+        </div>
+        <Card>
+          <CardContent className="p-6 text-sm text-muted-foreground">You do not have permission to manage billing.</CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -48,4 +66,3 @@ export default async function BillingSettingsPage() {
     </div>
   );
 }
-

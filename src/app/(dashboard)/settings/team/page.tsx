@@ -52,7 +52,7 @@ export default async function TeamSettingsPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <PageHeader title="Team Management" description="Organization members, roles, and invitations (placeholder)." />
+        <PageHeader title="Team Management" description="Manage organization members, roles, and invitations." />
         <Button asChild variant="outline">
           <Link href="/settings">Back to Settings</Link>
         </Button>

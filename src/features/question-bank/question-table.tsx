@@ -31,7 +31,7 @@ function preview(text: string, max = 90) {
   return `${trimmed.slice(0, max)}…`;
 }
 
-export function QuestionTable({ rows }: { rows: QuestionListRow[] }) {
+export function QuestionTable({ rows, canManage }: { rows: QuestionListRow[]; canManage: boolean }) {
   const router = useRouter();
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -84,18 +84,22 @@ export function QuestionTable({ rows }: { rows: QuestionListRow[] }) {
                     <Button asChild variant="outline" size="sm">
                       <Link href={`/question-bank/${row.id}`}>View</Link>
                     </Button>
-                    <Button asChild variant="outline" size="sm">
-                      <Link href={`/question-bank/${row.id}/edit`}>Edit</Link>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="sm"
-                      disabled={deletingId === row.id}
-                      onClick={() => onDelete(row.id)}
-                    >
-                      {deletingId === row.id ? "Deleting..." : "Delete"}
-                    </Button>
+                    {canManage ? (
+                      <>
+                        <Button asChild variant="outline" size="sm">
+                          <Link href={`/question-bank/${row.id}/edit`}>Edit</Link>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          disabled={deletingId === row.id}
+                          onClick={() => onDelete(row.id)}
+                        >
+                          {deletingId === row.id ? "Deleting..." : "Delete"}
+                        </Button>
+                      </>
+                    ) : null}
                   </div>
                 </TableCell>
               </TableRow>

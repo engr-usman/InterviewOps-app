@@ -29,7 +29,7 @@ function formatDateTime(value: Date) {
   }).format(value);
 }
 
-export function InterviewTable({ rows }: { rows: InterviewListRow[] }) {
+export function InterviewTable({ rows, canManage }: { rows: InterviewListRow[]; canManage: boolean }) {
   const router = useRouter();
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -86,18 +86,22 @@ export function InterviewTable({ rows }: { rows: InterviewListRow[] }) {
                     <Button asChild variant="outline" size="sm">
                       <Link href={`/interviews/${row.id}`}>View</Link>
                     </Button>
-                    <Button asChild variant="outline" size="sm">
-                      <Link href={`/interviews/${row.id}/edit`}>Edit</Link>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="sm"
-                      disabled={deletingId === row.id}
-                      onClick={() => onDelete(row.id)}
-                    >
-                      {deletingId === row.id ? "Deleting..." : "Delete"}
-                    </Button>
+                    {canManage ? (
+                      <>
+                        <Button asChild variant="outline" size="sm">
+                          <Link href={`/interviews/${row.id}/edit`}>Edit</Link>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          disabled={deletingId === row.id}
+                          onClick={() => onDelete(row.id)}
+                        >
+                          {deletingId === row.id ? "Deleting..." : "Delete"}
+                        </Button>
+                      </>
+                    ) : null}
                   </div>
                 </TableCell>
               </TableRow>

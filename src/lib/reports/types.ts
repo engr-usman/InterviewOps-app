@@ -41,6 +41,17 @@ export type InterviewReport = BaseReport & {
     interviewerStrongAreas?: string | null;
     interviewerConcerns?: string | null;
     interviewerFinalNotes?: string | null;
+    evaluationBreakdown?: {
+      technicalAverage: number | null;
+      communication: number | null;
+      problemSolving: number | null;
+      interviewerTechnicalAssessment: number | null;
+      cloudDevOps?: number | null;
+      overallScore: number | null;
+      recommendation: string | null;
+      autoRecommendation: string | null;
+      manualOverride: boolean;
+    };
     sourceHints?: {
       resumeParsed?: boolean;
       jdParsed?: boolean;

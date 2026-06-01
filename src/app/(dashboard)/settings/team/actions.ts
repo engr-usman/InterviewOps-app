@@ -75,7 +75,9 @@ export async function removeMemberAction(input: { memberId: string }): Promise<A
   }
 }
 
-export async function createInviteTokenAction(input: { email: string; role: OrgRole }): Promise<ActionResult<{ inviteUrl: string }>> {
+export async function createInviteTokenAction(
+  input: { email: string; role: OrgRole },
+): Promise<ActionResult<{ inviteUrl: string; email: string; role: OrgRole; expiresAt: string }>> {
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
@@ -100,11 +102,12 @@ export async function createInviteTokenAction(input: { email: string; role: OrgR
       select: { id: true },
     });
 
-    const baseUrl = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+    const baseUrlRaw = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+    const baseUrl = baseUrlRaw.endsWith("/") ? baseUrlRaw.slice(0, -1) : baseUrlRaw;
     const inviteUrl = `${baseUrl}/invite/${token}`;
 
     revalidatePath("/settings/team");
-    return { ok: true, data: { inviteUrl } };
+    return { ok: true, data: { inviteUrl, email, role: input.role, expiresAt: expiresAt.toISOString() } };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Failed to create invite." };
   }

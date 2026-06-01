@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils";
+import { hasPermission, type OrgRole } from "@/server/services/rbac";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
@@ -16,14 +17,20 @@ const navItems = [
   { href: "/settings", label: "Settings" },
 ];
 
-export function Sidebar() {
+export function Sidebar({ role }: { role: OrgRole }) {
   const pathname = usePathname();
+  const showSettings =
+    hasPermission(role, "settings:manage") ||
+    hasPermission(role, "billing:manage") ||
+    hasPermission(role, "team:manage") ||
+    hasPermission(role, "org:manage");
+  const effectiveItems = showSettings ? navItems : navItems.filter((i) => i.href !== "/settings");
 
   return (
     <aside className="flex h-full w-64 flex-col border-r bg-background p-4">
       <div className="mb-6 text-lg font-semibold">InterviewOps</div>
       <nav className="flex flex-col gap-1">
-        {navItems.map((item) => {
+        {effectiveItems.map((item) => {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
             <Link

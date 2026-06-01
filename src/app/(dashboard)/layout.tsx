@@ -14,7 +14,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   const userEmail = session.user?.email ?? "";
   return (
-    <DashboardShell userEmail={userEmail} userId={session.user.id}>
+    <DashboardShell userEmail={userEmail} userId={session.user.id} role={orgCtx.role}>
       {children}
     </DashboardShell>
   );

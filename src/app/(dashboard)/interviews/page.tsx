@@ -39,7 +39,7 @@ export default async function InterviewsPage({
   if (!session) redirect("/login");
 
   const ctx = await getOrgContextOrThrow(session.user.id);
-  const canAccess = hasPermission(ctx.role, "interview:conduct");
+  const canAccess = hasPermission(ctx.role, "interview:view") || hasPermission(ctx.role, "interview:conduct") || hasPermission(ctx.role, "interview:manage");
   const canManage = hasPermission(ctx.role, "interview:manage");
 
   if (!canAccess) {
@@ -245,7 +245,7 @@ export default async function InterviewsPage({
           </CardContent>
         </Card>
       ) : (
-        <InterviewTable rows={rows} />
+      <InterviewTable rows={rows} canManage={canManage} />
       )}
     </div>
   );

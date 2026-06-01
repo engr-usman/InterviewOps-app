@@ -1,9 +1,8 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Recommendation } from "@prisma/client";
 
@@ -20,6 +19,8 @@ import {
   type SaveQuestionEvaluationValues,
   type SaveScorecardValues,
 } from "@/features/interviews/interview-evaluation-schema";
+import { QuestionScoreBadge } from "@/features/interviews/question-score-badge";
+import { getScoreBand } from "@/features/interviews/score-band";
 import {
   addAdHocInterviewQuestionAction,
   completeInterviewAction,
@@ -70,6 +71,7 @@ export type SessionScorecard = {
   overallScore: number | null;
   summaryText: string | null;
   scorecardJson: unknown;
+  metadataJson: unknown;
 } | null;
 
 function tagsToList(value: unknown): string[] {
@@ -91,6 +93,44 @@ function getEvalMeta(q: SessionQuestion): { strengthsNotes: string; weaknessesNo
     strengthsNotes: typeof meta?.strengthsNotes === "string" ? meta.strengthsNotes : "",
     weaknessesNotes: typeof meta?.weaknessesNotes === "string" ? meta.weaknessesNotes : "",
   };
+}
+
+function recommendationLabel(value: Recommendation | null): string {
+  if (!value) return "—";
+  if (value === "STRONG_HIRE") return "Strong Hire";
+  if (value === "HIRE") return "Hire";
+  if (value === "BORDERLINE") return "Borderline";
+  if (value === "NO_HIRE") return "Reject";
+  if (value === "STRONG_NO_HIRE") return "Reject";
+  return String(value);
+}
+
+function computeOverallScore({
+  technicalAverage,
+  communication,
+  problemSolving,
+  interviewerTechnicalAssessment,
+}: {
+  technicalAverage: number | null;
+  communication: number | null;
+  problemSolving: number | null;
+  interviewerTechnicalAssessment: number | null;
+}): number | null {
+  if (typeof technicalAverage !== "number") return null;
+  if (typeof communication !== "number") return null;
+  if (typeof problemSolving !== "number") return null;
+  if (typeof interviewerTechnicalAssessment !== "number") return null;
+  const overall =
+    technicalAverage * 0.5 + communication * 0.15 + problemSolving * 0.2 + interviewerTechnicalAssessment * 0.15;
+  return Math.round(overall * 100) / 100;
+}
+
+function autoRecommendation(overallScore: number | null): Recommendation | null {
+  if (typeof overallScore !== "number") return null;
+  if (overallScore >= 8.5) return "STRONG_HIRE";
+  if (overallScore >= 7.0) return "HIRE";
+  if (overallScore >= 6.0) return "BORDERLINE";
+  return "NO_HIRE";
 }
 
 function avg(values: number[]): number | null {
@@ -133,8 +173,10 @@ export function InterviewSessionConsole({
   const [aiInsightLoading, setAiInsightLoading] = React.useState(false);
   const [aiSummaryLoading, setAiSummaryLoading] = React.useState(false);
   const [isCompletingInterview, setIsCompletingInterview] = React.useState(false);
+  const [isSavingEvaluation, setIsSavingEvaluation] = React.useState(false);
   const [isAddingAdHoc, setIsAddingAdHoc] = React.useState(false);
   const [showAdHoc, setShowAdHoc] = React.useState(false);
+  const isControlledQuestionNavigationRef = React.useRef(false);
 
   const selectedQuestion = React.useMemo(
     () => (selectedId ? questions.find((q) => q.id === selectedId) ?? null : null),
@@ -187,13 +229,24 @@ export function InterviewSessionConsole({
     });
   }, [evaluationForm, selectedQuestion?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  React.useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isSavingEvaluation) return;
+      if (isControlledQuestionNavigationRef.current) return;
+      if (!evaluationForm.formState.isDirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [evaluationForm.formState.isDirty, isSavingEvaluation]);
+
   const scorecardForm = useForm<SaveScorecardValues>({
     resolver: zodResolver(saveScorecardSchema),
     defaultValues: {
-      recommendation: scorecard?.recommendation ?? "",
       communicationScore: undefined,
       problemSolvingScore: undefined,
-      cloudDevOpsScore: undefined,
+      interviewerTechnicalAssessment: undefined,
       interviewSummary: scorecard?.summaryText ?? "",
       finalRecommendation: "",
       hiringConcerns: "",
@@ -207,17 +260,17 @@ export function InterviewSessionConsole({
       | {
           communicationScore?: unknown;
           problemSolvingScore?: unknown;
-          cloudDevOpsScore?: unknown;
+          interviewerTechnicalAssessment?: unknown;
           finalRecommendation?: unknown;
           hiringConcerns?: unknown;
           strongAreas?: unknown;
         };
 
     scorecardForm.reset({
-      recommendation: scorecard?.recommendation ?? "",
       communicationScore: typeof json?.communicationScore === "number" ? json.communicationScore : undefined,
       problemSolvingScore: typeof json?.problemSolvingScore === "number" ? json.problemSolvingScore : undefined,
-      cloudDevOpsScore: typeof json?.cloudDevOpsScore === "number" ? json.cloudDevOpsScore : undefined,
+      interviewerTechnicalAssessment:
+        typeof json?.interviewerTechnicalAssessment === "number" ? json.interviewerTechnicalAssessment : undefined,
       interviewSummary: scorecard?.summaryText ?? "",
       finalRecommendation: typeof json?.finalRecommendation === "string" ? json.finalRecommendation : "",
       hiringConcerns: typeof json?.hiringConcerns === "string" ? json.hiringConcerns : "",
@@ -230,46 +283,65 @@ export function InterviewSessionConsole({
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
   );
 
-  const setSelectedQuestionId = (nextId: string) => {
-    if (evaluationBusy) return;
-    if (evaluationForm.formState.isDirty) {
+  const setSelectedQuestionId = (nextId: string, opts?: { keepNotice?: boolean }) => {
+    if (evaluationBusy || isSavingEvaluation) return;
+    if (evaluationForm.formState.isDirty && !isControlledQuestionNavigationRef.current) {
       const ok = window.confirm("You have unsaved changes for this question. Continue without saving?");
       if (!ok) return;
     }
-    setNotice(null);
+    if (!opts?.keepNotice) setNotice(null);
     setError(null);
     setFollowUps(null);
     setAiInsight(null);
     const url = `/interviews/${interviewId}/session?q=${encodeURIComponent(nextId)}`;
     router.replace(url);
+    if (isControlledQuestionNavigationRef.current) {
+      window.setTimeout(() => {
+        isControlledQuestionNavigationRef.current = false;
+      }, 0);
+    }
   };
 
-  const onSaveEvaluation = evaluationForm.handleSubmit(async (values) => {
-    if (!selectedQuestion) return;
-    if (isReadOnly) {
-      setError(readOnlyTooltip);
-      return;
+  const showBriefNotice = (msg: string) => {
+    setNotice(msg);
+    window.setTimeout(() => {
+      setNotice((cur) => (cur === msg ? null : cur));
+    }, 1200);
+  };
+
+  const saveCurrentEvaluationOrSetError = async (): Promise<{ ok: boolean }> => {
+    if (!selectedQuestion) return { ok: false };
+    if (isReadOnly) return { ok: true };
+
+    const values = evaluationForm.getValues();
+
+    const scoreRaw = values.score;
+    const scoreIsValid = typeof scoreRaw === "number" && !Number.isNaN(scoreRaw);
+    if (!scoreIsValid) {
+      setError("Score is required before moving to another question.");
+      return { ok: false };
     }
+    if (!values.status) {
+      setError("Status is required before moving to another question.");
+      return { ok: false };
+    }
+
     setError(null);
-    setNotice(null);
     const result = await saveInterviewQuestionEvaluationAction(interviewId, selectedQuestion.id, values);
     if (!result.ok) {
       setError(result.error);
-      return;
+      return { ok: false };
     }
 
-    const normalizedScore = typeof values.score === "number" && !Number.isNaN(values.score) ? values.score : Number.NaN;
     evaluationForm.reset({
-      score: normalizedScore,
+      score: scoreRaw,
       status: values.status,
       strengthsNotes: values.strengthsNotes ?? "",
       weaknessesNotes: values.weaknessesNotes ?? "",
       overallNotes: values.overallNotes ?? "",
     });
-
-    setNotice("Evaluation saved.");
-    router.refresh();
-  });
+    return { ok: true };
+  };
 
   const allEvaluated = React.useMemo(() => {
     if (questions.length === 0) return false;
@@ -320,23 +392,74 @@ export function InterviewSessionConsole({
     }
   });
 
-  const onNextQuestion = async () => {
-    if (evaluationBusy) return;
+  const orderedQuestions = React.useMemo(() => [...questions].sort((a, b) => a.order - b.order), [questions]);
+  const selectedIndex = React.useMemo(
+    () => (selectedQuestion ? orderedQuestions.findIndex((q) => q.id === selectedQuestion.id) : -1),
+    [orderedQuestions, selectedQuestion],
+  );
+  const isLastQuestion = selectedIndex !== -1 && selectedIndex === orderedQuestions.length - 1;
+  const canGoPrev = selectedIndex > 0;
+  const canGoNext = selectedIndex !== -1 && selectedIndex < orderedQuestions.length - 1;
+
+  const onPrevQuestion = async () => {
+    if (evaluationBusy || isSavingEvaluation) return;
     if (!selectedQuestion) return;
-    const ordered = [...questions].sort((a, b) => a.order - b.order);
-    const indexInOrdered = ordered.findIndex((q) => q.id === selectedQuestion.id);
-    if (indexInOrdered === -1) return;
+    if (!canGoPrev) return;
+    if (isReadOnly) {
+      setSelectedQuestionId(orderedQuestions[selectedIndex - 1].id);
+      return;
+    }
+    setIsSavingEvaluation(true);
+    isControlledQuestionNavigationRef.current = true;
+    try {
+      const saved = await saveCurrentEvaluationOrSetError();
+      if (!saved.ok) return;
+      showBriefNotice("Evaluation saved.");
+      setSelectedQuestionId(orderedQuestions[selectedIndex - 1].id, { keepNotice: true });
+      router.refresh();
+    } finally {
+      setIsSavingEvaluation(false);
+      window.setTimeout(() => {
+        isControlledQuestionNavigationRef.current = false;
+      }, 0);
+    }
+  };
 
-    const findNext = () => {
-      for (let offset = 1; offset <= ordered.length; offset += 1) {
-        const q = ordered[(indexInOrdered + offset) % ordered.length];
-        if (getEvalStatus(q) !== "EVALUATED") return q.id;
+  const onNextOrFinish = async () => {
+    if (evaluationBusy || isSavingEvaluation) return;
+    if (!selectedQuestion) return;
+    if (orderedQuestions.length === 0) return;
+
+    if (isReadOnly) {
+      if (canGoNext) setSelectedQuestionId(orderedQuestions[selectedIndex + 1].id);
+      return;
+    }
+
+    setIsSavingEvaluation(true);
+    isControlledQuestionNavigationRef.current = true;
+    try {
+      const saved = await saveCurrentEvaluationOrSetError();
+      if (!saved.ok) return;
+
+      if (isLastQuestion) {
+        setError(null);
+        showBriefNotice("All interview questions evaluated.");
+        router.refresh();
+        const el = document.getElementById("scorecard-section");
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
       }
-      return ordered[(indexInOrdered + 1) % ordered.length]?.id ?? selectedQuestion.id;
-    };
 
-    const nextId = findNext();
-    setSelectedQuestionId(nextId);
+      if (!canGoNext) return;
+      showBriefNotice("Evaluation saved.");
+      setSelectedQuestionId(orderedQuestions[selectedIndex + 1].id, { keepNotice: true });
+      router.refresh();
+    } finally {
+      setIsSavingEvaluation(false);
+      window.setTimeout(() => {
+        isControlledQuestionNavigationRef.current = false;
+      }, 0);
+    }
   };
 
   const onSuggestFollowUp = async () => {
@@ -456,9 +579,6 @@ export function InterviewSessionConsole({
       scorecardForm.setValue("finalRecommendation", `${reasoning}${reasoning && verdict ? "\n\n" : ""}${verdict}`, {
         shouldDirty: true,
       });
-      if (result.data.suggestedRecommendation) {
-        scorecardForm.setValue("recommendation", result.data.suggestedRecommendation, { shouldDirty: true });
-      }
 
       setNotice("AI summary generated. Review and save when ready.");
     } finally {
@@ -468,6 +588,28 @@ export function InterviewSessionConsole({
 
   const questionTags = selectedQuestion ? tagsToList(selectedQuestion.tagsJson) : [];
   const scorecardOverall = scorecard?.overallScore ?? null;
+  const communicationLiveRaw = useWatch({ control: scorecardForm.control, name: "communicationScore" });
+  const problemSolvingLiveRaw = useWatch({ control: scorecardForm.control, name: "problemSolvingScore" });
+  const interviewerTechLiveRaw = useWatch({ control: scorecardForm.control, name: "interviewerTechnicalAssessment" });
+  const communicationLive =
+    typeof communicationLiveRaw === "number" && !Number.isNaN(communicationLiveRaw) ? communicationLiveRaw : null;
+  const problemSolvingLive =
+    typeof problemSolvingLiveRaw === "number" && !Number.isNaN(problemSolvingLiveRaw) ? problemSolvingLiveRaw : null;
+  const interviewerTechLive =
+    typeof interviewerTechLiveRaw === "number" && !Number.isNaN(interviewerTechLiveRaw) ? interviewerTechLiveRaw : null;
+  const liveOverall = React.useMemo(
+    () =>
+      computeOverallScore({
+        technicalAverage: progress.technicalAverage,
+        communication: communicationLive,
+        problemSolving: problemSolvingLive,
+        interviewerTechnicalAssessment: interviewerTechLive,
+      }),
+    [communicationLive, interviewerTechLive, problemSolvingLive, progress.technicalAverage],
+  );
+  const liveRecommendation = autoRecommendation(liveOverall);
+  const recommendationToShow = liveRecommendation ?? scorecard?.recommendation ?? null;
+  const overallToShow = typeof liveOverall === "number" ? liveOverall : scorecardOverall;
 
   return (
     <div className="space-y-6">
@@ -489,8 +631,18 @@ export function InterviewSessionConsole({
               Back to Interview Detail
             </Button>
           ) : (
-            <Button asChild variant="outline">
-              <Link href={`/interviews/${interviewId}`}>Back to Interview Detail</Link>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                if (evaluationForm.formState.isDirty) {
+                  const ok = window.confirm("You have unsaved changes. Save before leaving?");
+                  if (ok) return;
+                }
+                router.push(`/interviews/${interviewId}`);
+              }}
+            >
+              Back to Interview Detail
             </Button>
           )}
         </div>
@@ -638,14 +790,15 @@ export function InterviewSessionConsole({
                     .slice()
                     .sort((a, b) => a.order - b.order)
                     .map((q) => {
-                      const status = getEvalStatus(q);
                       const isSelected = q.id === selectedQuestion?.id;
-                      const badgeClass =
-                        status === "EVALUATED"
-                          ? "bg-emerald-100 text-emerald-800"
-                          : status === "IN_REVIEW"
-                            ? "bg-amber-100 text-amber-800"
-                            : "bg-slate-100 text-slate-700";
+                      const band = getScoreBand(q.evaluation?.score ?? null, 10);
+                      const isWeak = band.label === "Weak" || band.label === "Invalid score";
+                      const isEvaluated = band.label === "Strong" || band.label === "Average" || band.label === "Weak";
+                      const rowToneClass = isWeak
+                        ? "border-red-200 bg-red-50/30 dark:border-red-900 dark:bg-red-950/20"
+                        : isEvaluated
+                          ? "border-emerald-200 bg-emerald-50/30 dark:border-emerald-900 dark:bg-emerald-950/20"
+                          : null;
 
                       return (
                         <button
@@ -654,16 +807,17 @@ export function InterviewSessionConsole({
                           className={cn(
                             "w-full rounded-md border px-3 py-2 text-left text-sm transition",
                             isSelected ? "border-primary" : "hover:bg-muted/40",
-                            evaluationBusy ? "opacity-60" : null,
+                            evaluationBusy || isSavingEvaluation ? "opacity-60" : null,
+                            !isSelected ? rowToneClass : null,
                           )}
-                          disabled={evaluationBusy}
+                          disabled={evaluationBusy || isSavingEvaluation}
                           onClick={() => setSelectedQuestionId(q.id)}
                         >
                           <div className="flex items-center justify-between gap-3">
                             <div className="font-medium">
                               {q.order}. {q.topic ?? "—"}
                             </div>
-                            <span className={cn("rounded-full px-2 py-0.5 text-xs", badgeClass)}>{status}</span>
+                            <QuestionScoreBadge score={q.evaluation?.score ?? null} />
                           </div>
                           <div className="mt-1 text-muted-foreground line-clamp-2">{q.questionText}</div>
                         </button>
@@ -702,7 +856,7 @@ export function InterviewSessionConsole({
                     ) : null}
                   </div>
 
-                  <form onSubmit={isReadOnly ? (e) => e.preventDefault() : onSaveEvaluation} className="space-y-4">
+                  <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
                     <div className="grid gap-4 sm:grid-cols-3">
                       <div className="space-y-2">
                         <Label htmlFor="score">Score (1–10)</Label>
@@ -777,13 +931,20 @@ export function InterviewSessionConsole({
                     {notice ? <p className="text-sm text-muted-foreground">{notice}</p> : null}
 
                     <div className="flex flex-wrap items-center gap-2">
-                      {!isReadOnly ? (
-                        <Button type="submit" disabled={evaluationBusy}>
-                          {evaluationBusy ? "Saving..." : "Save Evaluation"}
-                        </Button>
-                      ) : null}
-                      <Button type="button" variant="outline" onClick={onNextQuestion} disabled={evaluationBusy}>
-                        Next Question
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={onPrevQuestion}
+                        disabled={evaluationBusy || isSavingEvaluation || !canGoPrev}
+                      >
+                        Previous Question
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={onNextOrFinish}
+                        disabled={evaluationBusy || isSavingEvaluation || (!canGoNext && !isLastQuestion)}
+                      >
+                        {isSavingEvaluation ? "Saving..." : isLastQuestion ? "Finish Evaluation" : "Next Question"}
                       </Button>
                     </div>
 
@@ -906,7 +1067,7 @@ export function InterviewSessionConsole({
             </CardContent>
           </Card>
 
-          <Card>
+          <Card id="scorecard-section">
             <CardHeader>
               <CardTitle>Scorecard</CardTitle>
               <CardDescription>Manual scorecard and recommendation (no AI evaluation yet).</CardDescription>
@@ -925,11 +1086,11 @@ export function InterviewSessionConsole({
                 </div>
                 <div className="rounded-md border p-3 text-sm">
                   <div className="text-muted-foreground">Overall score</div>
-                  <div className="text-lg font-semibold">{typeof scorecardOverall === "number" ? scorecardOverall.toFixed(2) : "—"}</div>
+                  <div className="text-lg font-semibold">{typeof overallToShow === "number" ? overallToShow.toFixed(2) : "—"}</div>
                 </div>
                 <div className="rounded-md border p-3 text-sm">
                   <div className="text-muted-foreground">Recommendation</div>
-                  <div className="text-lg font-semibold">{scorecard?.recommendation ?? "—"}</div>
+                  <div className="text-lg font-semibold">{recommendationLabel(recommendationToShow)}</div>
                 </div>
               </div>
 
@@ -950,24 +1111,7 @@ export function InterviewSessionConsole({
               <form onSubmit={isReadOnly ? (e) => e.preventDefault() : onSaveScorecard} className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="recommendation">Recommendation</Label>
-                    <select
-                      id="recommendation"
-                      className={selectClassName}
-                      disabled={isReadOnly}
-                      {...scorecardForm.register("recommendation")}
-                    >
-                      <option value="">—</option>
-                      <option value="STRONG_HIRE">STRONG_HIRE</option>
-                      <option value="HIRE">HIRE</option>
-                      <option value="BORDERLINE">BORDERLINE</option>
-                      <option value="NO_HIRE">NO_HIRE</option>
-                      <option value="STRONG_NO_HIRE">STRONG_NO_HIRE</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="communicationScore">Communication (placeholder)</Label>
+                    <Label htmlFor="communicationScore">Communication</Label>
                     <Input
                       id="communicationScore"
                       type="number"
@@ -979,7 +1123,7 @@ export function InterviewSessionConsole({
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="problemSolvingScore">Problem solving (placeholder)</Label>
+                    <Label htmlFor="problemSolvingScore">Problem solving</Label>
                     <Input
                       id="problemSolvingScore"
                       type="number"
@@ -991,16 +1135,20 @@ export function InterviewSessionConsole({
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="cloudDevOpsScore">Cloud/DevOps (placeholder)</Label>
+                    <Label htmlFor="interviewerTechnicalAssessment">Interviewer Technical Assessment</Label>
                     <Input
-                      id="cloudDevOpsScore"
+                      id="interviewerTechnicalAssessment"
                       type="number"
                       min={1}
                       max={10}
                       disabled={isReadOnly}
-                      {...scorecardForm.register("cloudDevOpsScore", { valueAsNumber: true })}
+                      {...scorecardForm.register("interviewerTechnicalAssessment", { valueAsNumber: true })}
                     />
                   </div>
+                </div>
+
+                <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+                  Recommendation is automatically calculated from interview score.
                 </div>
 
                 <div className="space-y-2">
@@ -1058,6 +1206,14 @@ export function InterviewSessionConsole({
 
                 {scorecardForm.formState.errors.communicationScore?.message ? (
                   <p className="text-sm text-destructive">{String(scorecardForm.formState.errors.communicationScore.message)}</p>
+                ) : null}
+                {scorecardForm.formState.errors.problemSolvingScore?.message ? (
+                  <p className="text-sm text-destructive">{String(scorecardForm.formState.errors.problemSolvingScore.message)}</p>
+                ) : null}
+                {scorecardForm.formState.errors.interviewerTechnicalAssessment?.message ? (
+                  <p className="text-sm text-destructive">
+                    {String(scorecardForm.formState.errors.interviewerTechnicalAssessment.message)}
+                  </p>
                 ) : null}
 
                 {!isReadOnly ? (

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { getServerAuthSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { requireOrgPermission } from "@/server/services/access";
 import {
   normalizeQuestionFormValues,
   questionFormInputSchema,
@@ -17,6 +18,12 @@ export async function createQuestionAction(
 ): Promise<ActionResult<{ id: string }>> {
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
+
+  try {
+    await requireOrgPermission(session.user.id, "questionBank:manage");
+  } catch {
+    return { ok: false, error: "Insufficient permissions." };
+  }
 
   const parsed = questionFormInputSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid form data." };
@@ -46,6 +53,12 @@ export async function updateQuestionAction(
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
+  try {
+    await requireOrgPermission(session.user.id, "questionBank:manage");
+  } catch {
+    return { ok: false, error: "Insufficient permissions." };
+  }
+
   const parsed = questionFormInputSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid form data." };
   const values = normalizeQuestionFormValues(parsed.data);
@@ -73,6 +86,12 @@ export async function updateQuestionAction(
 export async function deleteQuestionAction(id: string): Promise<ActionResult<{ id: string }>> {
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
+
+  try {
+    await requireOrgPermission(session.user.id, "questionBank:manage");
+  } catch {
+    return { ok: false, error: "Insufficient permissions." };
+  }
 
   const deleted = await prisma.questionBank.deleteMany({
     where: { id },

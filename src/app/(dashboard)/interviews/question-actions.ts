@@ -16,7 +16,7 @@ type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
 type Db = {
   interview: {
-    findFirst: (args: unknown) => Promise<{ id: string } | null>;
+    findFirst: (args: unknown) => Promise<{ id: string; status: string } | null>;
   };
 };
 
@@ -61,9 +61,12 @@ export async function generateInterviewQuestionsAction(
     const db = prisma as unknown as Db;
     const interview = await db.interview.findFirst({
       where: { id: interviewId, organizationId: ctx.organization.id },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!interview) throw new Error("Interview not found.");
+    if (interview.status === "COMPLETED") {
+      throw new Error("Completed interviews cannot be modified. Reopen the interview first.");
+    }
 
     const createdCount = await prisma.$transaction(async (tx) => {
       const existing = await tx.interviewQuestion.findMany({
@@ -142,9 +145,12 @@ export async function addInterviewQuestionFromBankAction(
     const db = prisma as unknown as Db;
     const interview = await db.interview.findFirst({
       where: { id: interviewId, organizationId: ctx.organization.id },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!interview) throw new Error("Interview not found.");
+    if (interview.status === "COMPLETED") {
+      throw new Error("Completed interviews cannot be modified. Reopen the interview first.");
+    }
 
     const created = await prisma.$transaction(async (tx) => {
       const qb = await tx.questionBank.findUnique({
@@ -203,9 +209,12 @@ export async function removeInterviewQuestionAction(
     const db = prisma as unknown as Db;
     const interview = await db.interview.findFirst({
       where: { id: interviewId, organizationId: ctx.organization.id },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!interview) throw new Error("Interview not found.");
+    if (interview.status === "COMPLETED") {
+      throw new Error("Completed interviews cannot be modified. Reopen the interview first.");
+    }
 
     await prisma.$transaction(async (tx) => {
       const deleted = await tx.interviewQuestion.deleteMany({

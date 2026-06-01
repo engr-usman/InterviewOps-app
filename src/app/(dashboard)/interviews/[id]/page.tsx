@@ -3,8 +3,10 @@ import { notFound, redirect } from "next/navigation";
 
 import { getServerAuthSession } from "@/auth";
 import { PageHeader } from "@/components/layout/page-header";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { prisma } from "@/lib/prisma";
 import { InterviewQuestionTable } from "@/features/interviews/interview-question-table";
 import { InterviewQuestionsManager } from "@/features/interviews/interview-questions-manager";
@@ -14,7 +16,7 @@ import { getOrgContextOrThrow } from "@/server/services/org-context";
 import { hasPermission } from "@/server/services/rbac";
 import { hasFeature } from "@/server/services/feature-flags";
 import { generateInterviewReportAndRedirectAction } from "@/app/(dashboard)/reports/actions";
-import { ReportType } from "@prisma/client";
+import { completeInterviewAction } from "@/app/(dashboard)/interviews/session-actions";
 
 type Db = {
   interview: { findFirst: (args: unknown) => Promise<InterviewDetailRow | null> };
@@ -25,6 +27,8 @@ type InterviewDetailRow = {
   status: string;
   scheduledStartAt: Date | null;
   scheduledEndAt: Date | null;
+  startedAt: Date | null;
+  endedAt: Date | null;
   meetingUrl: string | null;
   notesText: string | null;
   metadataJson: unknown;
@@ -59,6 +63,25 @@ function formatDateTime(value: Date) {
   }).format(value);
 }
 
+function formatDate(value: Date) {
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+  }).format(value);
+}
+
+async function completeInterviewAndReturnAction(formData: FormData) {
+  "use server";
+  const interviewId = String(formData.get("interviewId") ?? "");
+  const returnTo = String(formData.get("returnTo") ?? "/interviews");
+  if (!interviewId) redirect(returnTo);
+  const result = await completeInterviewAction(interviewId);
+  const sep = returnTo.includes("?") ? "&" : "?";
+  if (!result.ok) redirect(`${returnTo}${sep}sessionError=${encodeURIComponent(result.error)}`);
+  redirect(returnTo);
+}
+
 export default async function InterviewDetailPage({
   params,
   searchParams,
@@ -73,11 +96,14 @@ export default async function InterviewDetailPage({
   const canConduct = hasPermission(ctx.role, "interview:conduct");
   const canManage = hasPermission(ctx.role, "interview:manage");
   const canViewReports = hasPermission(ctx.role, "reports:view");
+  const canGenerateReports = hasPermission(ctx.role, "reports:generate");
   const aiAllowed =
     canManage && hasPermission(ctx.role, "ai:use") ? await hasFeature(ctx.organization.id, "ai") : false;
-  const exportsAllowed = canViewReports ? await hasFeature(ctx.organization.id, "exports") : false;
+  const exportsAllowed =
+    canViewReports && hasPermission(ctx.role, "reports:export") ? await hasFeature(ctx.organization.id, "exports") : false;
 
-  if (!canConduct) {
+  const canViewInterviews = hasPermission(ctx.role, "interview:view") || canConduct || canManage;
+  if (!canViewInterviews) {
     return (
       <div className="space-y-6">
         <PageHeader title="Interview" description="Interview details and placeholders for session artifacts." />
@@ -98,6 +124,8 @@ export default async function InterviewDetailPage({
       status: true,
       scheduledStartAt: true,
       scheduledEndAt: true,
+      startedAt: true,
+      endedAt: true,
       meetingUrl: true,
       notesText: true,
       metadataJson: true,
@@ -129,7 +157,7 @@ export default async function InterviewDetailPage({
 
   if (!interview) notFound();
 
-  const [interviewQuestions, evaluationScores, scorecard, questionsWithEval, existingReport] = await Promise.all([
+  const [interviewQuestions, evaluationScores, scorecard, questionsWithEval, latestReport] = await Promise.all([
     prisma.interviewQuestion.findMany({
       where: { interviewId: interview.id },
       orderBy: { order: "asc" },
@@ -140,6 +168,7 @@ export default async function InterviewDetailPage({
         questionText: true,
         type: true,
         difficulty: true,
+        evaluation: { select: { score: true, metadataJson: true } },
       },
     }),
     prisma.interviewQuestionEvaluation.findMany({
@@ -159,15 +188,15 @@ export default async function InterviewDetailPage({
         order: true,
         topic: true,
         questionText: true,
-        evaluation: { select: { score: true, updatedAt: true } },
+        evaluation: { select: { score: true, updatedAt: true, metadataJson: true } },
       },
       take: 200,
     }),
     canViewReports
       ? prisma.report.findFirst({
-          where: { organizationId: ctx.organization.id, interviewId: interview.id, type: ReportType.FULL },
-          orderBy: { updatedAt: "desc" },
-          select: { id: true, updatedAt: true },
+          where: { organizationId: ctx.organization.id, interviewId: interview.id },
+          orderBy: { createdAt: "desc" },
+          select: { id: true, type: true, createdAt: true, updatedAt: true, reportJson: true },
         })
       : Promise.resolve(null),
   ]);
@@ -201,11 +230,32 @@ export default async function InterviewDetailPage({
   const evaluatedCount = scored.length;
   const totalCount = interviewQuestions.length;
   const completionPct = totalCount === 0 ? 0 : Math.round((evaluatedCount / totalCount) * 100);
-  const noQuestions = interviewQuestions.length === 0;
   const isScheduled = interview.status === "SCHEDULED";
   const isInProgress = interview.status === "IN_PROGRESS";
   const isCompleted = interview.status === "COMPLETED";
-  const canStartSession = !(isScheduled && noQuestions);
+  const showNoQuestionsWarning = !isCompleted && totalCount === 0;
+  const canLaunchSession = isCompleted || totalCount > 0;
+  // Future Feature: Ad-Hoc Interview Mode
+  // Purpose: Allow interviewers to conduct interviews without Question Bank questions and evaluate candidates using manual ratings only.
+  const statusLabel = isScheduled ? "Scheduled" : isInProgress ? "In Progress" : isCompleted ? "Completed" : interview.status;
+  const statusBadgeClassName = isCompleted
+    ? "border-transparent bg-emerald-600 text-white"
+    : isInProgress
+      ? "border-transparent bg-blue-600 text-white"
+      : "border-transparent bg-muted text-muted-foreground";
+  const pendingCount = Math.max(0, totalCount - evaluatedCount);
+  const skippedCount = 0;
+
+  const allEvaluated =
+    totalCount > 0 &&
+    questionsWithEval.length === totalCount &&
+    questionsWithEval.every((q) => {
+      const meta = q.evaluation?.metadataJson as { status?: unknown } | null;
+      const s = meta?.status;
+      if (s === "EVALUATED") return true;
+      return typeof q.evaluation?.score === "number";
+    });
+  const canCompleteInterview = interview.status === "IN_PROGRESS" && Boolean(scorecard) && allEvaluated;
 
   const reportBlockers: string[] = [];
   if (interview.status !== "COMPLETED") {
@@ -231,48 +281,66 @@ export default async function InterviewDetailPage({
   const reopenedAtParsed =
     typeof reopenedAtRaw === "string" && reopenedAtRaw.trim().length > 0 ? new Date(reopenedAtRaw) : null;
   const reopenedAt = reopenedAtParsed && !Number.isNaN(reopenedAtParsed.getTime()) ? reopenedAtParsed : null;
-  const showOutdatedReportWarning =
-    Boolean(reopenedAt && existingReport?.updatedAt && existingReport.updatedAt < reopenedAt);
+  const showReopenedOutdatedReportWarning =
+    Boolean(reopenedAt && latestReport?.updatedAt && latestReport.updatedAt < reopenedAt);
+  const showInProgressExistingReportsWarning = Boolean(isInProgress && latestReport);
+
+  const reportScorecard = (latestReport?.reportJson as { scorecard?: unknown } | null)?.scorecard as
+    | null
+    | { recommendation?: unknown; overallScore?: unknown };
+  const reportRecommendation = typeof reportScorecard?.recommendation === "string" ? reportScorecard.recommendation : null;
+  const reportOverallScore = typeof reportScorecard?.overallScore === "number" ? reportScorecard.overallScore : null;
+  const scorecardRecommendationLabel =
+    scorecard?.recommendation === "STRONG_HIRE"
+      ? "Strong Hire"
+      : scorecard?.recommendation === "HIRE"
+        ? "Hire"
+        : scorecard?.recommendation === "BORDERLINE"
+          ? "Borderline"
+          : scorecard?.recommendation === "NO_HIRE"
+            ? "Reject"
+            : scorecard?.recommendation === "STRONG_NO_HIRE"
+              ? "Reject"
+            : "Not Submitted";
+
+  const scorecardJson = (scorecard?.scorecardJson ?? null) as
+    | null
+    | {
+        communicationScore?: unknown;
+        problemSolvingScore?: unknown;
+        interviewerTechnicalAssessment?: unknown;
+        cloudDevOpsScore?: unknown;
+      };
+  const communicationScore = typeof scorecardJson?.communicationScore === "number" ? scorecardJson.communicationScore : null;
+  const problemSolvingScore = typeof scorecardJson?.problemSolvingScore === "number" ? scorecardJson.problemSolvingScore : null;
+  const interviewerTechnicalAssessment =
+    typeof scorecardJson?.interviewerTechnicalAssessment === "number"
+      ? scorecardJson.interviewerTechnicalAssessment
+      : typeof scorecardJson?.cloudDevOpsScore === "number"
+        ? scorecardJson.cloudDevOpsScore
+        : null;
+
+  const startedAt = interview.startedAt;
+  const endedAt = interview.endedAt;
+  const durationMinutes =
+    startedAt && endedAt ? Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / (1000 * 60))) : null;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader title="Interview" description="Interview details and placeholders for session artifacts." />
         <div className="flex flex-col gap-2 sm:items-end">
-          {sessionError ? <div className="text-sm text-destructive">{sessionError}</div> : null}
-          {!canStartSession ? (
-            <div className="text-sm text-muted-foreground">
-              Add questions before starting the interview, or use ad-hoc interview mode.
-            </div>
-          ) : null}
+          {!showNoQuestionsWarning && sessionError ? <div className="text-sm text-destructive">{sessionError}</div> : null}
           <div className="flex flex-wrap items-center gap-2">
           <Button asChild variant="outline">
             <Link href="/interviews">Back to Interviews</Link>
           </Button>
-          {isCompleted ? (
-            <Button asChild variant="outline">
-              <Link href={`/interviews/${interview.id}/session`}>View Session</Link>
-            </Button>
-          ) : canStartSession ? (
-            <Button asChild variant="outline">
-              <Link href={`/interviews/${interview.id}/session`}>{isInProgress ? "Continue Interview Session" : "Start Interview Session"}</Link>
-            </Button>
-          ) : (
-            <Button variant="outline" disabled>
-              Start Interview Session
-            </Button>
-          )}
-          {isCompleted && canManage ? <ReopenInterviewButton interviewId={interview.id} /> : null}
-          {!canStartSession ? (
-            <Button asChild variant="outline">
-              <Link href={`/interviews/${interview.id}/session?adhoc=1`}>Ad-hoc Mode</Link>
-            </Button>
-          ) : null}
           {canManage ? (
             <Button asChild>
               <Link href={`/interviews/${interview.id}/edit`}>Edit Interview</Link>
             </Button>
           ) : null}
+          {isCompleted && canManage ? <ReopenInterviewButton interviewId={interview.id} /> : null}
           </div>
         </div>
       </div>
@@ -378,11 +446,203 @@ export default async function InterviewDetailPage({
 
       <Card>
         <CardHeader>
+          <CardTitle>Session Summary</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="text-muted-foreground">Interview status</div>
+              <div className="flex items-center gap-2">
+                <Badge className={statusBadgeClassName}>{statusLabel}</Badge>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {isCompleted || (canConduct && canLaunchSession) ? (
+                <Button asChild size="sm" variant="outline">
+                  <Link href={`/interviews/${interview.id}/session`}>
+                    {isCompleted ? "View Session" : isInProgress ? "Continue Interview Session" : "Start Interview Session"}
+                  </Link>
+                </Button>
+              ) : (
+                <span title={canConduct ? "Add at least one question before starting the interview." : "You do not have permission to conduct interviews."}>
+                  <Button size="sm" variant="outline" disabled>
+                    Start Interview Session
+                  </Button>
+                </span>
+              )}
+              {latestReport && canViewReports ? (
+                <Button asChild size="sm" variant="outline">
+                  <Link href={`/reports/${latestReport.id}`}>View Report</Link>
+                </Button>
+              ) : null}
+              {canCompleteInterview ? (
+                <form action={completeInterviewAndReturnAction}>
+                  <input type="hidden" name="interviewId" value={interview.id} />
+                  <input type="hidden" name="returnTo" value={`/interviews/${interview.id}`} />
+                  <FormSubmitButton size="sm" pendingText="Completing...">
+                    Complete Interview
+                  </FormSubmitButton>
+                </form>
+              ) : null}
+              {canGenerateReports && isCompleted ? (
+                <form action={generateInterviewReportAndRedirectAction}>
+                  <input type="hidden" name="interviewId" value={interview.id} />
+                  <input type="hidden" name="type" value="FULL" />
+                  <input type="hidden" name="force" value="0" />
+                  <input type="hidden" name="returnTo" value={`/interviews/${interview.id}`} />
+                  <FormSubmitButton size="sm" disabled={!canGenerateReport} pendingText="Generating...">
+                    Generate Report
+                  </FormSubmitButton>
+                </form>
+              ) : null}
+            </div>
+          </div>
+
+          {showNoQuestionsWarning ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+              <div className="font-medium">⚠ No interview questions have been added.</div>
+              <div className="text-amber-800">Add at least one question before starting the interview.</div>
+            </div>
+          ) : null}
+          {!showNoQuestionsWarning && !startedAt ? (
+            <div className="rounded-md border bg-muted/30 p-3 text-muted-foreground">
+              Interview session has not been started.
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-md border p-4">
+              <div className="text-sm font-medium">Progress</div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <div className="text-muted-foreground">Questions evaluated</div>
+                  <div>
+                    {evaluatedCount} / {totalCount}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Completion</div>
+                  <div>{completionPct}%</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Technical average</div>
+                  <div>{typeof technicalAverage === "number" ? `${technicalAverage.toFixed(2)} / 10` : "Not available"}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Communication</div>
+                  <div>{typeof communicationScore === "number" ? `${communicationScore.toFixed(2)} / 10` : "Not available"}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Problem solving</div>
+                  <div>{typeof problemSolvingScore === "number" ? `${problemSolvingScore.toFixed(2)} / 10` : "Not available"}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Interviewer Technical Assessment</div>
+                  <div>
+                    {typeof interviewerTechnicalAssessment === "number"
+                      ? `${interviewerTechnicalAssessment.toFixed(2)} / 10`
+                      : "Not available"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Overall score</div>
+                  <div>{typeof scorecard?.overallScore === "number" ? `${scorecard.overallScore.toFixed(2)} / 10` : "Not available"}</div>
+                </div>
+                <div className="sm:col-span-2">
+                  <div className="text-muted-foreground">Recommendation</div>
+                  <div>{scorecardRecommendationLabel}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-md border p-4">
+              <div className="text-sm font-medium">Question stats</div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <div className="text-muted-foreground">Questions</div>
+                  <div>{totalCount}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Evaluated</div>
+                  <div>{evaluatedCount}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Pending</div>
+                  <div>{pendingCount}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Skipped</div>
+                  <div>{skippedCount}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-md border p-4">
+            <div className="text-sm font-medium">Timeline</div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <div className="text-muted-foreground">Created</div>
+                <div>{formatDate(interview.createdAt)}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Started</div>
+                <div>{startedAt ? formatDateTime(startedAt) : "—"}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Completed</div>
+                <div>{endedAt ? formatDateTime(endedAt) : "—"}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Duration</div>
+                <div>{endedAt && typeof durationMinutes === "number" ? `${durationMinutes} minutes` : startedAt ? "Running..." : "—"}</div>
+              </div>
+            </div>
+          </div>
+
+          {latestReport ? (
+            <div className="rounded-md border p-4">
+              <div className="text-sm font-medium">Report</div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <div className="text-muted-foreground">Latest Report</div>
+                  <div>{String(latestReport.type)}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Score</div>
+                  <div>{typeof reportOverallScore === "number" ? reportOverallScore.toFixed(2) : "—"}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Recommendation</div>
+                  <div>{reportRecommendation ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Generated</div>
+                  <div>{formatDate(latestReport.createdAt)}</div>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button asChild size="sm" variant="outline">
+                  <Link href={`/reports/${latestReport.id}`}>View Report</Link>
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Questions</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          {aiAllowed ? <InterviewAiQuestionsManager interviewId={interview.id} /> : null}
-          {canManage ? (
+          {isCompleted ? (
+            <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
+              This interview is completed. Reopen the interview to modify questions or evaluations.
+            </div>
+          ) : null}
+          {!isCompleted && aiAllowed ? <InterviewAiQuestionsManager interviewId={interview.id} /> : null}
+          {!isCompleted && canManage ? (
             <InterviewQuestionsManager interviewId={interview.id} topics={topics} questionBankOptions={questionBankOptions} />
           ) : null}
 
@@ -395,6 +655,7 @@ export default async function InterviewDetailPage({
             ) : (
               <InterviewQuestionTable
                 interviewId={interview.id}
+                readOnly={isCompleted}
                 rows={interviewQuestions.map((q) => ({
                   id: q.id,
                   order: q.order,
@@ -402,6 +663,7 @@ export default async function InterviewDetailPage({
                   questionText: q.questionText,
                   type: q.type,
                   difficulty: q.difficulty,
+                  evaluation: q.evaluation ? { score: q.evaluation.score, metadataJson: q.evaluation.metadataJson } : null,
                 }))}
               />
             )}
@@ -447,31 +709,59 @@ export default async function InterviewDetailPage({
           {canViewReports ? (
             <div className="flex flex-wrap items-center gap-2 rounded-md border p-3">
               {reportError ? <div className="w-full text-sm text-destructive">{reportError}</div> : null}
-              {showOutdatedReportWarning ? (
+              {showReopenedOutdatedReportWarning ? (
                 <div className="w-full rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
                   This interview was reopened after report generation. Existing reports may be outdated. Regenerate the report
                   after completing the interview again.
                 </div>
               ) : null}
-              {!canGenerateReport ? (
+              {showInProgressExistingReportsWarning ? (
+                <div className="w-full rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                  This interview has existing reports, but the interview is currently in progress. Reports may be outdated.
+                </div>
+              ) : null}
+              {canGenerateReports && !canGenerateReport ? (
                 <div className="w-full space-y-1 text-sm text-muted-foreground">
                   {reportBlockers.map((msg) => (
                     <div key={msg}>{msg}</div>
                   ))}
                 </div>
               ) : null}
-              {existingReport ? (
+              {!canGenerateReports ? (
+                <div className="w-full text-sm text-muted-foreground">You do not have permission to generate reports.</div>
+              ) : null}
+              {latestReport ? (
                 <>
+                  <div className="w-full rounded-md border p-3 text-sm">
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      <div>
+                        <div className="text-muted-foreground">Report type</div>
+                        <div>{String(latestReport.type)}</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground">Recommendation</div>
+                        <div>{reportRecommendation ?? "—"}</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground">Score</div>
+                        <div>{typeof reportOverallScore === "number" ? reportOverallScore.toFixed(2) : "—"}</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground">Created</div>
+                        <div>{formatDateTime(latestReport.createdAt)}</div>
+                      </div>
+                    </div>
+                  </div>
                   <Button asChild size="sm" variant="outline">
-                    <Link href={`/reports/${existingReport.id}`}>View Report</Link>
+                    <Link href={`/reports/${latestReport.id}`}>View Report</Link>
                   </Button>
                   {exportsAllowed ? (
                     <>
                       <Button asChild size="sm" variant="outline">
-                        <Link href={`/api/reports/${existingReport.id}/json`}>Export JSON</Link>
+                        <Link href={`/api/reports/${latestReport.id}/json`}>Export JSON</Link>
                       </Button>
                       <Button asChild size="sm" variant="outline">
-                        <Link href={`/api/reports/${existingReport.id}/csv`}>Export CSV</Link>
+                        <Link href={`/api/reports/${latestReport.id}/csv`}>Export CSV</Link>
                       </Button>
                     </>
                   ) : (
@@ -479,26 +769,30 @@ export default async function InterviewDetailPage({
                       Export (upgrade)
                     </Button>
                   )}
+                  {canGenerateReports ? (
+                    <form action={generateInterviewReportAndRedirectAction}>
+                      <input type="hidden" name="interviewId" value={interview.id} />
+                      <input type="hidden" name="type" value="FULL" />
+                      <input type="hidden" name="force" value="1" />
+                      <input type="hidden" name="returnTo" value={`/interviews/${interview.id}`} />
+                      <FormSubmitButton size="sm" disabled={!canGenerateReport} pendingText="Regenerating...">
+                        Regenerate Report
+                      </FormSubmitButton>
+                    </form>
+                  ) : null}
+                </>
+              ) : (
+                canGenerateReports ? (
                   <form action={generateInterviewReportAndRedirectAction}>
                     <input type="hidden" name="interviewId" value={interview.id} />
                     <input type="hidden" name="type" value="FULL" />
-                    <input type="hidden" name="force" value="1" />
+                    <input type="hidden" name="force" value="0" />
                     <input type="hidden" name="returnTo" value={`/interviews/${interview.id}`} />
-                    <Button type="submit" size="sm" disabled={!canGenerateReport}>
-                      Regenerate Report
-                    </Button>
+                    <FormSubmitButton size="sm" disabled={!canGenerateReport} pendingText="Generating...">
+                      Generate Report
+                    </FormSubmitButton>
                   </form>
-                </>
-              ) : (
-                <form action={generateInterviewReportAndRedirectAction}>
-                  <input type="hidden" name="interviewId" value={interview.id} />
-                  <input type="hidden" name="type" value="FULL" />
-                  <input type="hidden" name="force" value="0" />
-                  <input type="hidden" name="returnTo" value={`/interviews/${interview.id}`} />
-                  <Button type="submit" size="sm" disabled={!canGenerateReport}>
-                    Generate Report
-                  </Button>
-                </form>
+                ) : null
               )}
             </div>
           ) : null}
@@ -562,12 +856,6 @@ export default async function InterviewDetailPage({
                 <div className="text-muted-foreground">{typeof aiJdSummary?.summary === "string" ? (aiJdSummary.summary as string) : "—"}</div>
               </div>
             </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/interviews/${interview.id}/session`}>Open session</Link>
-            </Button>
           </div>
         </CardContent>
       </Card>

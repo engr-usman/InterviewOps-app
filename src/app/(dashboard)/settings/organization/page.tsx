@@ -31,8 +31,29 @@ export default async function OrganizationSettingsPage() {
   if (!session) redirect("/login");
 
   const ctx = await getOrgContextOrThrow(session.user.id);
+  const canAccessSettings =
+    hasPermission(ctx.role, "settings:manage") ||
+    hasPermission(ctx.role, "billing:manage") ||
+    hasPermission(ctx.role, "team:manage") ||
+    hasPermission(ctx.role, "org:manage");
   const canEdit = ctx.role === "OWNER" || ctx.role === "ADMIN";
   const canManageTeam = hasPermission(ctx.role, "team:manage");
+
+  if (!canAccessSettings) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <PageHeader title="Organization" description="Profile and subscription overview" />
+          <Button asChild variant="outline">
+            <Link href="/dashboard">Back to Dashboard</Link>
+          </Button>
+        </div>
+        <Card>
+          <CardContent className="p-6 text-sm text-muted-foreground">You do not have permission to manage settings.</CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const [org, subscription] = await Promise.all([
     prisma.organization.findUnique({

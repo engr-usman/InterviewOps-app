@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { QuestionScoreBadge } from "@/features/interviews/question-score-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { removeInterviewQuestionAction } from "@/app/(dashboard)/interviews/question-actions";
 
@@ -15,6 +16,7 @@ export type InterviewQuestionRow = {
   questionText: string;
   type: string;
   difficulty: string;
+  evaluation: { score: number | null; metadataJson: unknown | null } | null;
 };
 
 function preview(text: string, max = 90) {
@@ -23,12 +25,24 @@ function preview(text: string, max = 90) {
   return `${trimmed.slice(0, max)}…`;
 }
 
+function evalStatusLabel(row: InterviewQuestionRow): string {
+  const meta = row.evaluation?.metadataJson as { status?: unknown } | null;
+  const s = meta?.status;
+  if (s === "PENDING") return "Pending";
+  if (s === "IN_REVIEW") return "In review";
+  if (s === "EVALUATED") return "Evaluated";
+  if (typeof row.evaluation?.score === "number") return "Evaluated";
+  return "Pending";
+}
+
 export function InterviewQuestionTable({
   interviewId,
   rows,
+  readOnly = false,
 }: {
   interviewId: string;
   rows: InterviewQuestionRow[];
+  readOnly?: boolean;
 }) {
   const router = useRouter();
   const [removingId, setRemovingId] = React.useState<string | null>(null);
@@ -64,7 +78,8 @@ export function InterviewQuestionTable({
               <TableHead>Question</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Difficulty</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead className="w-[160px]">Score</TableHead>
+              <TableHead className="w-[140px]">Evaluation</TableHead>
               <TableHead className="w-[180px]">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -76,21 +91,26 @@ export function InterviewQuestionTable({
                 <TableCell className="text-muted-foreground">{preview(row.questionText)}</TableCell>
                 <TableCell className="text-muted-foreground">{row.type}</TableCell>
                 <TableCell className="text-muted-foreground">{row.difficulty}</TableCell>
-                <TableCell className="text-muted-foreground">Pending</TableCell>
+                <TableCell>
+                  <QuestionScoreBadge score={row.evaluation?.score ?? null} />
+                </TableCell>
+                <TableCell className="text-muted-foreground">{evalStatusLabel(row)}</TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <Button asChild variant="outline" size="sm">
                       <Link href={`/interviews/${interviewId}/questions/${row.id}`}>View</Link>
                     </Button>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="sm"
-                      disabled={removingId === row.id}
-                      onClick={() => onRemove(row.id)}
-                    >
-                      {removingId === row.id ? "Removing..." : "Remove"}
-                    </Button>
+                    {!readOnly ? (
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        disabled={removingId === row.id}
+                        onClick={() => onRemove(row.id)}
+                      >
+                        {removingId === row.id ? "Removing..." : "Remove"}
+                      </Button>
+                    ) : null}
                   </div>
                 </TableCell>
               </TableRow>
@@ -101,4 +121,3 @@ export function InterviewQuestionTable({
     </div>
   );
 }
-

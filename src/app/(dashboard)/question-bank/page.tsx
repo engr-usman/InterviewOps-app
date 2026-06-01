@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { prisma } from "@/lib/prisma";
 import { QuestionTable, type QuestionListRow } from "@/features/question-bank/question-table";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
+import { hasPermission } from "@/server/services/rbac";
 import {
   difficultyOptions,
   questionTypeOptions,
@@ -36,6 +37,7 @@ export default async function QuestionBankPage({
   if (!session) redirect("/login");
 
   const ctx = await getOrgContextOrThrow(session.user.id);
+  const canManage = hasPermission(ctx.role, "questionBank:manage");
 
   const params = (await searchParams) ?? {};
   const q = params.q?.trim();
@@ -248,9 +250,11 @@ export default async function QuestionBankPage({
             <Button asChild variant="outline">
               <Link href="/question-bank">Clear</Link>
             </Button>
-            <Button asChild>
-              <Link href="/question-bank/new">Add Question</Link>
-            </Button>
+            {canManage ? (
+              <Button asChild>
+                <Link href="/question-bank/new">Add Question</Link>
+              </Button>
+            ) : null}
           </div>
         </div>
 
@@ -350,7 +354,7 @@ export default async function QuestionBankPage({
           </CardContent>
         </Card>
       ) : (
-        <QuestionTable rows={rows} />
+        <QuestionTable rows={rows} canManage={canManage} />
       )}
     </div>
   );

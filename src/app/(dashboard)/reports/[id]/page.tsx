@@ -10,8 +10,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { prisma } from "@/lib/prisma";
+import { cn } from "@/lib/utils";
 import type { InterviewReport } from "@/lib/reports/types";
 import { PrintButton } from "@/features/reports/print-button";
+import { QuestionScoreBadge } from "@/features/interviews/question-score-badge";
+import { getScoreBand } from "@/features/interviews/score-band";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
 import { hasFeature } from "@/server/services/feature-flags";
 import { hasPermission } from "@/server/services/rbac";
@@ -31,6 +34,34 @@ function recBadgeVariant(rec: Recommendation | null): "secondary" | "muted" | "o
   if (rec === "STRONG_HIRE" || rec === "HIRE") return "secondary";
   if (rec === "BORDERLINE") return "outline";
   return "muted";
+}
+
+function scoreToneBadge(score: number | null): { label: string; className: string } {
+  if (typeof score !== "number") {
+    return {
+      label: "Not available",
+      className:
+        "border-slate-200 bg-slate-50 text-slate-800 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-200",
+    };
+  }
+  if (score >= 8) {
+    return {
+      label: "Strong",
+      className:
+        "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200",
+    };
+  }
+  if (score >= 6) {
+    return {
+      label: "Good",
+      className:
+        "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200",
+    };
+  }
+  return {
+    label: "Needs Improvement",
+    className: "border-red-200 bg-red-50 text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200",
+  };
 }
 
 function readText(value: unknown): string | null {
@@ -78,7 +109,7 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
           status: true,
           candidate: { select: { fullName: true } },
           jobDescription: { select: { title: true } },
-          scorecard: { select: { recommendation: true, overallScore: true, summaryText: true, scorecardJson: true } },
+          scorecard: { select: { recommendation: true, overallScore: true, summaryText: true, scorecardJson: true, metadataJson: true } },
         },
       },
     },
@@ -105,6 +136,39 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
 
   const recommendation = (report.interview.scorecard?.recommendation ?? null) as Recommendation | null;
   const overallScore = report.interview.scorecard?.overallScore ?? null;
+  const breakdown =
+    payload.details?.evaluationBreakdown ??
+    (report.interview.scorecard
+      ? {
+          technicalAverage: typeof (report.interview.scorecard.scorecardJson as { technicalAverage?: unknown } | null)?.technicalAverage === "number"
+            ? ((report.interview.scorecard.scorecardJson as { technicalAverage?: unknown }).technicalAverage as number)
+            : null,
+          communication: typeof (report.interview.scorecard.scorecardJson as { communicationScore?: unknown } | null)?.communicationScore === "number"
+            ? ((report.interview.scorecard.scorecardJson as { communicationScore?: unknown }).communicationScore as number)
+            : null,
+          problemSolving: typeof (report.interview.scorecard.scorecardJson as { problemSolvingScore?: unknown } | null)?.problemSolvingScore === "number"
+            ? ((report.interview.scorecard.scorecardJson as { problemSolvingScore?: unknown }).problemSolvingScore as number)
+            : null,
+          interviewerTechnicalAssessment:
+            typeof (report.interview.scorecard.scorecardJson as { interviewerTechnicalAssessment?: unknown } | null)
+              ?.interviewerTechnicalAssessment === "number"
+              ? ((report.interview.scorecard.scorecardJson as { interviewerTechnicalAssessment?: unknown })
+                  .interviewerTechnicalAssessment as number)
+              : typeof (report.interview.scorecard.scorecardJson as { cloudDevOpsScore?: unknown } | null)?.cloudDevOpsScore === "number"
+                ? ((report.interview.scorecard.scorecardJson as { cloudDevOpsScore?: unknown }).cloudDevOpsScore as number)
+                : null,
+          overallScore,
+          recommendation: recommendation ? String(recommendation) : null,
+          autoRecommendation:
+            typeof (report.interview.scorecard.metadataJson as { autoRecommendation?: unknown } | null)?.autoRecommendation === "string"
+              ? ((report.interview.scorecard.metadataJson as { autoRecommendation?: unknown }).autoRecommendation as string)
+              : null,
+          manualOverride:
+            (report.interview.scorecard.metadataJson as { manualOverride?: unknown } | null)?.manualOverride === true,
+        }
+      : null);
+  const overallTone = scoreToneBadge(typeof breakdown?.overallScore === "number" ? breakdown.overallScore : null);
+  const techTone = scoreToneBadge(typeof breakdown?.technicalAverage === "number" ? breakdown.technicalAverage : null);
 
   return (
     <div className="space-y-6">
@@ -153,12 +217,110 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
             <Badge variant={recBadgeVariant(recommendation)}>{recommendation ? String(recommendation) : "—"}</Badge>
             <Badge variant="outline">{typeof overallScore === "number" ? overallScore.toFixed(2) : "—"}</Badge>
           </CardTitle>
-          <div className="text-sm text-muted-foreground">
-            {report.interview.candidate.fullName} • {report.interview.jobDescription.title} • Updated{" "}
-            {formatDateTime(report.updatedAt)}
-          </div>
+          <div className="text-sm text-muted-foreground">{report.interview.candidate.fullName} • {report.interview.jobDescription.title}</div>
+          <div className="text-sm text-muted-foreground">Updated {formatDateTime(report.updatedAt)}</div>
         </CardHeader>
         <CardContent className="space-y-6">
+          {breakdown ? (
+            <div className="rounded-lg border p-4">
+              <div className="text-sm font-medium">Candidate Evaluation Breakdown</div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="rounded-md border p-3 text-sm">
+                  <div className="text-muted-foreground">Technical Average</div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="text-lg font-semibold">
+                      {typeof breakdown.technicalAverage === "number" ? `${breakdown.technicalAverage.toFixed(2)} / 10` : "—"}
+                    </span>
+                    <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none", techTone.className)}>
+                      {techTone.label}
+                    </span>
+                  </div>
+                </div>
+                <div className="rounded-md border p-3 text-sm">
+                  <div className="text-muted-foreground">Communication</div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="text-lg font-semibold">
+                      {typeof breakdown.communication === "number" ? `${breakdown.communication.toFixed(2)} / 10` : "—"}
+                    </span>
+                    <span
+                      className={cn(
+                        "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none",
+                        scoreToneBadge(typeof breakdown.communication === "number" ? breakdown.communication : null).className,
+                      )}
+                    >
+                      {scoreToneBadge(typeof breakdown.communication === "number" ? breakdown.communication : null).label}
+                    </span>
+                  </div>
+                </div>
+                <div className="rounded-md border p-3 text-sm">
+                  <div className="text-muted-foreground">Problem Solving</div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="text-lg font-semibold">
+                      {typeof breakdown.problemSolving === "number" ? `${breakdown.problemSolving.toFixed(2)} / 10` : "—"}
+                    </span>
+                    <span
+                      className={cn(
+                        "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none",
+                        scoreToneBadge(typeof breakdown.problemSolving === "number" ? breakdown.problemSolving : null).className,
+                      )}
+                    >
+                      {scoreToneBadge(typeof breakdown.problemSolving === "number" ? breakdown.problemSolving : null).label}
+                    </span>
+                  </div>
+                </div>
+                <div className="rounded-md border p-3 text-sm">
+                  <div className="text-muted-foreground">Interviewer Technical Assessment</div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="text-lg font-semibold">
+                      {typeof breakdown.interviewerTechnicalAssessment === "number"
+                        ? `${breakdown.interviewerTechnicalAssessment.toFixed(2)} / 10`
+                        : "—"}
+                    </span>
+                    <span
+                      className={cn(
+                        "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none",
+                        scoreToneBadge(
+                          typeof breakdown.interviewerTechnicalAssessment === "number"
+                            ? breakdown.interviewerTechnicalAssessment
+                            : null,
+                        ).className,
+                      )}
+                    >
+                      {scoreToneBadge(
+                        typeof breakdown.interviewerTechnicalAssessment === "number"
+                          ? breakdown.interviewerTechnicalAssessment
+                          : null,
+                      ).label}
+                    </span>
+                  </div>
+                </div>
+                <div className="rounded-md border p-3 text-sm">
+                  <div className="text-muted-foreground">Overall Score</div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="text-lg font-semibold">
+                      {typeof breakdown.overallScore === "number" ? `${breakdown.overallScore.toFixed(2)} / 10` : "—"}
+                    </span>
+                    <span
+                      className={cn(
+                        "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none",
+                        overallTone.className,
+                      )}
+                    >
+                      {overallTone.label}
+                    </span>
+                  </div>
+                </div>
+                <div className="rounded-md border p-3 text-sm">
+                  <div className="text-muted-foreground">Recommendation</div>
+                  <div className="mt-1 text-lg font-semibold">{breakdown.recommendation ?? "—"}</div>
+                  {breakdown.manualOverride ? (
+                    <div className="mt-1 text-xs text-muted-foreground">Manual Recommendation Override</div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="rounded-lg border p-4">
               <div className="text-sm font-medium">Candidate summary</div>
@@ -243,18 +405,55 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
                 </TableHeader>
                 <TableBody>
                   {payload.questions.map((q) => {
-                    const meta = q.evaluation?.metadataJson as { strengthsNotes?: unknown; weaknessesNotes?: unknown } | null;
+                    const meta = q.evaluation?.metadataJson as
+                      | { strengthsNotes?: unknown; weaknessesNotes?: unknown; status?: unknown }
+                      | null;
                     const sNotes = readText(meta?.strengthsNotes);
                     const wNotes = readText(meta?.weaknessesNotes);
                     const overallNotes = readText(q.evaluation?.notesText);
+                    const score = typeof q.evaluation?.score === "number" ? q.evaluation.score : null;
+                    const band = getScoreBand(score, 10);
+                    const isWeak = band.label === "Weak" || band.label === "Invalid score";
+                    const statusRaw = meta?.status;
+                    const statusLabel =
+                      statusRaw === "IN_REVIEW"
+                        ? "In review"
+                        : statusRaw === "EVALUATED" || typeof score === "number"
+                          ? "Evaluated"
+                          : "Pending";
+                    const statusToneClass =
+                      statusLabel === "Evaluated"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+                        : statusLabel === "In review"
+                          ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+                          : "border-slate-200 bg-slate-50 text-slate-800 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-200";
                     return (
-                      <TableRow key={q.id}>
+                      <TableRow
+                        key={q.id}
+                        className={
+                          isWeak
+                            ? "bg-red-50/40 dark:bg-red-950/20"
+                            : undefined
+                        }
+                      >
                         <TableCell className="text-muted-foreground">{q.order}</TableCell>
                         <TableCell>
                           <div className="font-medium">{q.topic ?? "—"}</div>
                           <div className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{q.questionText}</div>
                         </TableCell>
-                        <TableCell className="text-right">{typeof q.evaluation?.score === "number" ? q.evaluation.score : "—"}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <span
+                              className={cn(
+                                "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none",
+                                statusToneClass,
+                              )}
+                            >
+                              {statusLabel}
+                            </span>
+                            <QuestionScoreBadge score={score} />
+                          </div>
+                        </TableCell>
                         <TableCell>
                           <div className="space-y-1 text-sm text-muted-foreground">
                             {sNotes ? <div>Strengths: {sNotes}</div> : null}

@@ -15,7 +15,21 @@ export default async function SettingsPage() {
   if (!session) redirect("/login");
 
   const ctx = await getOrgContextOrThrow(session.user.id);
+  const canManageSettings = hasPermission(ctx.role, "settings:manage") || hasPermission(ctx.role, "org:manage");
   const canManageTeam = hasPermission(ctx.role, "team:manage");
+
+  if (!canManageSettings) {
+    return (
+      <div>
+        <PageHeader title="Settings" description="Application configuration" />
+        <Card>
+          <CardContent className="p-6 text-sm text-muted-foreground">
+            You do not have permission to manage settings.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const [
     aiEnabled,

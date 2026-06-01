@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { getServerAuthSession } from "@/auth";
 import { upsertAppSetting, type AppSettingKey } from "@/server/services/app-settings";
+import { requireOrgPermission } from "@/server/services/access";
 
 type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -30,6 +31,12 @@ export async function updateSettingsAction(input: SettingsFormValues): Promise<A
 
   const parsed = settingsSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid settings." };
+
+  try {
+    await requireOrgPermission(session.user.id, "settings:manage");
+  } catch {
+    return { ok: false, error: "You do not have permission to manage settings." };
+  }
 
   const maxBytes = parsed.data.maxResumeUploadMb * 1024 * 1024;
 

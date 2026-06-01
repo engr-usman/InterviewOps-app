@@ -35,6 +35,7 @@ type InterviewSessionRow = {
     overallScore: number | null;
     summaryText: string | null;
     scorecardJson: unknown;
+    metadataJson: unknown;
   } | null;
 };
 
@@ -44,26 +45,17 @@ type Db = {
 
 export default async function InterviewSessionPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ adhoc?: string }>;
 }) {
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
 
   const ctx = await getOrgContextOrThrow(session.user.id);
   const canConduct = hasPermission(ctx.role, "interview:conduct");
-  if (!canConduct) {
-    return (
-      <Card>
-        <CardContent className="p-6 text-sm text-muted-foreground">You do not have permission to conduct interviews.</CardContent>
-      </Card>
-    );
-  }
+  const canView = hasPermission(ctx.role, "interview:view") || canConduct || hasPermission(ctx.role, "interview:manage");
 
   const { id } = await params;
-  const { adhoc } = (await searchParams) ?? {};
 
   const interview = await (prisma as unknown as Db).interview.findFirst({
     where: { id, organizationId: ctx.organization.id },
@@ -113,6 +105,7 @@ export default async function InterviewSessionPage({
           overallScore: true,
           summaryText: true,
           scorecardJson: true,
+          metadataJson: true,
         },
       },
     },
@@ -120,17 +113,34 @@ export default async function InterviewSessionPage({
 
   if (!interview) notFound();
 
-  const allowAdHocStart = adhoc === "1";
-  if (interview.status === "SCHEDULED" && interview.questions.length === 0 && !allowAdHocStart) {
+  if (!canView) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-sm text-muted-foreground">You do not have permission to view interviews.</CardContent>
+      </Card>
+    );
+  }
+
+  if (!canConduct && interview.status !== "COMPLETED") {
+    return (
+      <Card>
+        <CardContent className="p-6 text-sm text-muted-foreground">
+          You do not have permission to conduct interviews.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if ((interview.status === "SCHEDULED" || interview.status === "IN_PROGRESS") && interview.questions.length === 0) {
     redirect(
       `/interviews/${interview.id}?sessionError=${encodeURIComponent(
-        "Add questions before starting the interview, or use ad-hoc interview mode.",
+        "No interview questions have been added. Add at least one question before starting the interview.",
       )}`,
     );
   }
 
   let effectiveStatus = interview.status;
-  if (interview.status === "SCHEDULED" || interview.status === "DRAFT") {
+  if (canConduct && (interview.status === "SCHEDULED" || interview.status === "DRAFT")) {
     const now = new Date();
     const updatedWithStartedAt = await prisma.interview.updateMany({
       where: {

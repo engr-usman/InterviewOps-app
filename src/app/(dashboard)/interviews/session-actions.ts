@@ -39,25 +39,40 @@ function computeTechnicalAverage(questions: Array<{ evaluation: { score: number 
   return Math.round((sum / scores.length) * 100) / 100;
 }
 
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 function computeOverallScore({
   technicalAverage,
   communicationScore,
   problemSolvingScore,
-  cloudDevOpsScore,
+  interviewerTechnicalAssessment,
 }: {
   technicalAverage: number | null;
   communicationScore?: number;
   problemSolvingScore?: number;
-  cloudDevOpsScore?: number;
+  interviewerTechnicalAssessment?: number;
 }): number | null {
-  const parts: number[] = [];
-  if (typeof technicalAverage === "number") parts.push(technicalAverage);
-  if (typeof communicationScore === "number") parts.push(communicationScore);
-  if (typeof problemSolvingScore === "number") parts.push(problemSolvingScore);
-  if (typeof cloudDevOpsScore === "number") parts.push(cloudDevOpsScore);
-  if (parts.length === 0) return null;
-  const sum = parts.reduce((a, b) => a + b, 0);
-  return Math.round((sum / parts.length) * 100) / 100;
+  if (typeof technicalAverage !== "number") return null;
+  if (typeof communicationScore !== "number") return null;
+  if (typeof problemSolvingScore !== "number") return null;
+  if (typeof interviewerTechnicalAssessment !== "number") return null;
+
+  const overall =
+    technicalAverage * 0.5 +
+    communicationScore * 0.15 +
+    problemSolvingScore * 0.2 +
+    interviewerTechnicalAssessment * 0.15;
+  return round2(overall);
+}
+
+function computeAutoRecommendation(overallScore: number | null): Recommendation | null {
+  if (typeof overallScore !== "number") return null;
+  if (overallScore >= 8.5) return Recommendation.STRONG_HIRE;
+  if (overallScore >= 7.0) return Recommendation.HIRE;
+  if (overallScore >= 6.0) return Recommendation.BORDERLINE;
+  return Recommendation.NO_HIRE;
 }
 
 export async function saveInterviewQuestionEvaluationAction(
@@ -141,21 +156,23 @@ export async function saveInterviewScorecardAction(
 
   const ctx = await requireOrgPermission(session.user.id, "interview:conduct");
   const parsed = saveScorecardSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: "Invalid scorecard inputs." };
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: "Communication, problem solving, and interviewer technical assessment are required (1–10).",
+    };
+  }
 
   const values: SaveScorecardValues = parsed.data;
 
   const communicationScore = nanToUndefined(values.communicationScore);
   const problemSolvingScore = nanToUndefined(values.problemSolvingScore);
-  const cloudDevOpsScore = nanToUndefined(values.cloudDevOpsScore);
+  const interviewerTechnicalAssessment = nanToUndefined(values.interviewerTechnicalAssessment);
 
   const interviewSummary = values.interviewSummary?.trim() ? values.interviewSummary.trim() : "";
   const finalRecommendation = values.finalRecommendation?.trim() ? values.finalRecommendation.trim() : "";
   const hiringConcerns = values.hiringConcerns?.trim() ? values.hiringConcerns.trim() : "";
   const strongAreas = values.strongAreas?.trim() ? values.strongAreas.trim() : "";
-
-  const recommendationRaw = (values as unknown as { recommendation?: Recommendation | "" }).recommendation;
-  const recommendation = recommendationRaw ? recommendationRaw : null;
 
   try {
     const saved = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
@@ -178,18 +195,26 @@ export async function saveInterviewScorecardAction(
       }
 
       const technicalAverage = computeTechnicalAverage(interview.questions);
+      if (typeof technicalAverage !== "number") {
+        throw new Error("Evaluate at least one question to compute the technical average.");
+      }
       const overallScore = computeOverallScore({
         technicalAverage,
         communicationScore,
         problemSolvingScore,
-        cloudDevOpsScore,
+        interviewerTechnicalAssessment,
       });
+      if (typeof overallScore !== "number") {
+        throw new Error("Overall score could not be calculated. Please check your scorecard inputs.");
+      }
+      const autoRecommendation = computeAutoRecommendation(overallScore);
+      const recommendation = autoRecommendation ?? Recommendation.NO_HIRE;
 
       const scorecardJson = {
         technicalAverage,
         communicationScore,
         problemSolvingScore,
-        cloudDevOpsScore,
+        interviewerTechnicalAssessment,
         overallScore,
         finalRecommendation,
         hiringConcerns,
@@ -204,12 +229,22 @@ export async function saveInterviewScorecardAction(
           overallScore,
           summaryText: interviewSummary ? interviewSummary : null,
           scorecardJson: scorecardJson as never,
+          metadataJson: {
+            scoringModel: "weighted_v2",
+            autoRecommendation,
+            manualOverride: false,
+          } as never,
         },
         update: {
           recommendation,
           overallScore,
           summaryText: interviewSummary ? interviewSummary : null,
           scorecardJson: scorecardJson as never,
+          metadataJson: {
+            scoringModel: "weighted_v2",
+            autoRecommendation,
+            manualOverride: false,
+          } as never,
         },
         select: { id: true },
       });

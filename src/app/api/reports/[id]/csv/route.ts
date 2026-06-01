@@ -18,7 +18,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   let ctx: Awaited<ReturnType<typeof requireOrgFeature>>;
   try {
-    await requireOrgPermission(session.user.id, "reports:view");
+    await requireOrgPermission(session.user.id, "reports:export");
     ctx = await requireOrgFeature(session.user.id, "exports");
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "Forbidden." }, { status: 403 });

@@ -1,4 +1,3 @@
-import { Recommendation } from "@prisma/client";
 import { z } from "zod";
 
 export const evaluationStatusValues = ["PENDING", "IN_REVIEW", "EVALUATED"] as const;
@@ -14,11 +13,14 @@ export const saveQuestionEvaluationSchema = z.object({
 
 export type SaveQuestionEvaluationValues = z.infer<typeof saveQuestionEvaluationSchema>;
 
+const requiredScore = z
+  .union([z.number().int().min(1).max(10), z.nan()])
+  .refine((v) => typeof v === "number" && !Number.isNaN(v), { message: "Required." });
+
 export const saveScorecardSchema = z.object({
-  recommendation: z.union([z.nativeEnum(Recommendation), z.literal("")]).optional(),
-  communicationScore: z.union([z.number().int().min(1).max(10), z.nan()]).optional(),
-  problemSolvingScore: z.union([z.number().int().min(1).max(10), z.nan()]).optional(),
-  cloudDevOpsScore: z.union([z.number().int().min(1).max(10), z.nan()]).optional(),
+  communicationScore: requiredScore,
+  problemSolvingScore: requiredScore,
+  interviewerTechnicalAssessment: requiredScore,
   interviewSummary: z.union([z.string(), z.literal("")]).optional(),
   finalRecommendation: z.union([z.string(), z.literal("")]).optional(),
   hiringConcerns: z.union([z.string(), z.literal("")]).optional(),
@@ -26,4 +28,3 @@ export const saveScorecardSchema = z.object({
 });
 
 export type SaveScorecardValues = z.infer<typeof saveScorecardSchema>;
-

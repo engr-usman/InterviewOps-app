@@ -6,19 +6,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createQuestionAction } from "@/app/(dashboard)/question-bank/actions";
 import { QuestionForm } from "@/features/question-bank/question-form";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
-import { hasPermission } from "@/server/services/rbac";
+import { canCreateQuestionBankQuestions } from "@/server/services/rbac";
 
 export default async function NewQuestionPage() {
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
 
   const ctx = await getOrgContextOrThrow(session.user.id);
-  const canManage = hasPermission(ctx.role, "questionBank:manage");
+  const canCreate = canCreateQuestionBankQuestions(ctx.role);
 
   return (
     <div className="space-y-6">
       <PageHeader title="Add question" description="Create a new question for the reusable bank." />
-      {canManage ? (
+      {canCreate ? (
         <QuestionForm
           mode="create"
           title="Question details"

@@ -39,10 +39,12 @@ export function InterviewQuestionTable({
   interviewId,
   rows,
   readOnly = false,
+  canManage = false,
 }: {
   interviewId: string;
   rows: InterviewQuestionRow[];
   readOnly?: boolean;
+  canManage?: boolean;
 }) {
   const router = useRouter();
   const [removingId, setRemovingId] = React.useState<string | null>(null);
@@ -61,6 +63,8 @@ export function InterviewQuestionTable({
         return;
       }
       router.refresh();
+    } catch {
+      setError("You do not have permission to perform this action.");
     } finally {
       setRemovingId(null);
     }
@@ -100,7 +104,7 @@ export function InterviewQuestionTable({
                     <Button asChild variant="outline" size="sm">
                       <Link href={`/interviews/${interviewId}/questions/${row.id}`}>View</Link>
                     </Button>
-                    {!readOnly ? (
+                    {!readOnly && canManage ? (
                       <Button
                         type="button"
                         variant="destructive"

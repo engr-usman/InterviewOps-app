@@ -11,7 +11,7 @@ import {
   type InterviewFormInputValues,
 } from "@/features/interviews/interview-schema";
 
-type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
+type ActionResult<T> = { ok: true; data: T } | { ok: false; message: string };
 
 type Db = {
   candidate: { findFirst: (args: unknown) => Promise<{ id: string } | null> };
@@ -25,46 +25,60 @@ type Db = {
 
 const db = prisma as unknown as Db;
 
+const permissionDeniedMessage = "You do not have permission to perform this action.";
+
 export async function createInterviewAction(
   input: InterviewFormInputValues,
 ): Promise<ActionResult<{ id: string }>> {
   const session = await getServerAuthSession();
-  if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
+  if (!session?.user?.id) return { ok: false, message: "Unauthorized." };
 
-  const ctx = await requireOrgPermission(session.user.id, "interview:manage");
+  let ctx: Awaited<ReturnType<typeof requireOrgPermission>>;
+  try {
+    ctx = await requireOrgPermission(session.user.id, "interview:manage");
+  } catch (error) {
+    if (error instanceof Error && error.message === "Insufficient permissions.") {
+      return { ok: false, message: permissionDeniedMessage };
+    }
+    return { ok: false, message: "Unauthorized." };
+  }
   const parsed = interviewFormInputSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: "Invalid form data." };
+  if (!parsed.success) return { ok: false, message: "Invalid form data." };
   const values = normalizeInterviewFormValues(parsed.data);
 
   const candidate = await db.candidate.findFirst({
     where: { id: values.candidateId, organizationId: ctx.organization.id },
     select: { id: true },
   });
-  if (!candidate) return { ok: false, error: "Candidate not found." };
+  if (!candidate) return { ok: false, message: "Candidate not found." };
 
   const jobDescription = await db.jobDescription.findFirst({
     where: { id: values.jobDescriptionId, organizationId: ctx.organization.id },
     select: { id: true },
   });
-  if (!jobDescription) return { ok: false, error: "Job description not found." };
+  if (!jobDescription) return { ok: false, message: "Job description not found." };
 
-  const created = await db.interview.create({
-    data: {
-      createdById: session.user.id,
-      organizationId: ctx.organization.id,
-      candidateId: values.candidateId,
-      jobDescriptionId: values.jobDescriptionId,
-      status: values.status,
-      scheduledStartAt: values.scheduledStartAt,
-      scheduledEndAt: values.scheduledEndAt,
-      meetingUrl: values.meetingUrl,
-      notesText: values.notesText,
-    },
-    select: { id: true },
-  });
+  try {
+    const created = await db.interview.create({
+      data: {
+        createdById: session.user.id,
+        organizationId: ctx.organization.id,
+        candidateId: values.candidateId,
+        jobDescriptionId: values.jobDescriptionId,
+        status: values.status,
+        scheduledStartAt: values.scheduledStartAt,
+        scheduledEndAt: values.scheduledEndAt,
+        meetingUrl: values.meetingUrl,
+        notesText: values.notesText,
+      },
+      select: { id: true },
+    });
 
-  revalidatePath("/interviews");
-  return { ok: true, data: { id: created.id } };
+    revalidatePath("/interviews");
+    return { ok: true, data: { id: created.id } };
+  } catch {
+    return { ok: false, message: "Failed to create interview." };
+  }
 }
 
 export async function updateInterviewAction(
@@ -72,65 +86,98 @@ export async function updateInterviewAction(
   input: InterviewFormInputValues,
 ): Promise<ActionResult<{ id: string }>> {
   const session = await getServerAuthSession();
-  if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
+  if (!session?.user?.id) return { ok: false, message: "Unauthorized." };
 
-  const ctx = await requireOrgPermission(session.user.id, "interview:manage");
+  let ctx: Awaited<ReturnType<typeof requireOrgPermission>>;
+  try {
+    ctx = await requireOrgPermission(session.user.id, "interview:manage");
+  } catch (error) {
+    if (error instanceof Error && error.message === "Insufficient permissions.") {
+      return { ok: false, message: permissionDeniedMessage };
+    }
+    return { ok: false, message: "Unauthorized." };
+  }
   const parsed = interviewFormInputSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: "Invalid form data." };
+  if (!parsed.success) return { ok: false, message: "Invalid form data." };
   const values = normalizeInterviewFormValues(parsed.data);
 
   const candidate = await db.candidate.findFirst({
     where: { id: values.candidateId, organizationId: ctx.organization.id },
     select: { id: true },
   });
-  if (!candidate) return { ok: false, error: "Candidate not found." };
+  if (!candidate) return { ok: false, message: "Candidate not found." };
 
   const jobDescription = await db.jobDescription.findFirst({
     where: { id: values.jobDescriptionId, organizationId: ctx.organization.id },
     select: { id: true },
   });
-  if (!jobDescription) return { ok: false, error: "Job description not found." };
+  if (!jobDescription) return { ok: false, message: "Job description not found." };
 
-  const updated = await db.interview.updateMany({
-    where: { id, organizationId: ctx.organization.id },
-    data: {
-      candidateId: values.candidateId,
-      jobDescriptionId: values.jobDescriptionId,
-      status: values.status,
-      scheduledStartAt: values.scheduledStartAt,
-      scheduledEndAt: values.scheduledEndAt,
-      meetingUrl: values.meetingUrl,
-      notesText: values.notesText,
-    },
-  });
+  try {
+    const updated = await db.interview.updateMany({
+      where: { id, organizationId: ctx.organization.id },
+      data: {
+        candidateId: values.candidateId,
+        jobDescriptionId: values.jobDescriptionId,
+        status: values.status,
+        scheduledStartAt: values.scheduledStartAt,
+        scheduledEndAt: values.scheduledEndAt,
+        meetingUrl: values.meetingUrl,
+        notesText: values.notesText,
+      },
+    });
 
-  if (updated.count === 0) return { ok: false, error: "Interview not found." };
+    if (updated.count === 0) return { ok: false, message: "Interview not found." };
 
-  revalidatePath("/interviews");
-  revalidatePath(`/interviews/${id}`);
-  return { ok: true, data: { id } };
+    revalidatePath("/interviews");
+    revalidatePath(`/interviews/${id}`);
+    return { ok: true, data: { id } };
+  } catch {
+    return { ok: false, message: "Failed to update interview." };
+  }
 }
 
 export async function deleteInterviewAction(id: string): Promise<ActionResult<{ id: string }>> {
   const session = await getServerAuthSession();
-  if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
+  if (!session?.user?.id) return { ok: false, message: "Unauthorized." };
 
-  const ctx = await requireOrgPermission(session.user.id, "interview:manage");
-  const deleted = await db.interview.deleteMany({
-    where: { id, organizationId: ctx.organization.id },
-  });
+  let ctx: Awaited<ReturnType<typeof requireOrgPermission>>;
+  try {
+    ctx = await requireOrgPermission(session.user.id, "interview:manage");
+  } catch (error) {
+    if (error instanceof Error && error.message === "Insufficient permissions.") {
+      return { ok: false, message: permissionDeniedMessage };
+    }
+    return { ok: false, message: "Unauthorized." };
+  }
 
-  if (deleted.count === 0) return { ok: false, error: "Interview not found." };
+  try {
+    const deleted = await db.interview.deleteMany({
+      where: { id, organizationId: ctx.organization.id },
+    });
 
-  revalidatePath("/interviews");
-  return { ok: true, data: { id } };
+    if (deleted.count === 0) return { ok: false, message: "Interview not found." };
+
+    revalidatePath("/interviews");
+    return { ok: true, data: { id } };
+  } catch {
+    return { ok: false, message: "Failed to delete interview." };
+  }
 }
 
 export async function reopenInterviewAction(interviewId: string): Promise<ActionResult<{ id: string }>> {
   const session = await getServerAuthSession();
-  if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
+  if (!session?.user?.id) return { ok: false, message: "Unauthorized." };
 
-  const ctx = await requireOrgPermission(session.user.id, "interview:manage");
+  let ctx: Awaited<ReturnType<typeof requireOrgPermission>>;
+  try {
+    ctx = await requireOrgPermission(session.user.id, "interview:manage");
+  } catch (error) {
+    if (error instanceof Error && error.message === "Insufficient permissions.") {
+      return { ok: false, message: permissionDeniedMessage };
+    }
+    return { ok: false, message: "Unauthorized." };
+  }
 
   try {
     const now = new Date();
@@ -189,7 +236,7 @@ export async function reopenInterviewAction(interviewId: string): Promise<Action
     revalidatePath("/interviews");
     return { ok: true, data: result };
   } catch (error) {
-    if (error instanceof Error) return { ok: false, error: error.message };
-    return { ok: false, error: "Failed to reopen interview." };
+    if (error instanceof Error) return { ok: false, message: error.message };
+    return { ok: false, message: "Failed to reopen interview." };
   }
 }

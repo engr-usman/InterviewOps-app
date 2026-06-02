@@ -13,7 +13,7 @@ import {
   type CandidateFormInputValues,
 } from "@/features/candidates/candidate-schema";
 
-type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
+type ActionResult<T> = { ok: true; data: T } | { ok: false; message: string };
 
 type Db = {
   candidate: {
@@ -26,15 +26,25 @@ type Db = {
 
 const db = prisma as unknown as Db;
 
+const permissionDeniedMessage = "You do not have permission to perform this action.";
+
 export async function createCandidateAction(
   input: CandidateFormInputValues,
 ): Promise<ActionResult<{ id: string }>> {
   const session = await getServerAuthSession();
-  if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
+  if (!session?.user?.id) return { ok: false, message: "Unauthorized." };
 
-  const ctx = await requireOrgPermission(session.user.id, "candidate:manage");
+  let ctx: Awaited<ReturnType<typeof requireOrgPermission>>;
+  try {
+    ctx = await requireOrgPermission(session.user.id, "candidate:manage");
+  } catch (error) {
+    if (error instanceof Error && error.message === "Insufficient permissions.") {
+      return { ok: false, message: permissionDeniedMessage };
+    }
+    return { ok: false, message: "Unauthorized." };
+  }
   const parsed = candidateFormInputSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: "Invalid form data." };
+  if (!parsed.success) return { ok: false, message: "Invalid form data." };
   const values = normalizeCandidateFormValues(parsed.data);
   const email = normalizeEmail(parsed.data.email ?? null);
 
@@ -47,7 +57,7 @@ export async function createCandidateAction(
       select: { id: true },
     });
     if (existing) {
-      return { ok: false, error: "A candidate with this email already exists in this organization." };
+      return { ok: false, message: "A candidate with this email already exists in this organization." };
     }
   }
 
@@ -71,9 +81,9 @@ export async function createCandidateAction(
     return { ok: true, data: { id: candidate.id } };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      return { ok: false, error: "A candidate with this email already exists in this organization." };
+      return { ok: false, message: "A candidate with this email already exists in this organization." };
     }
-    return { ok: false, error: "Failed to create candidate." };
+    return { ok: false, message: "Failed to create candidate." };
   }
 }
 
@@ -82,11 +92,19 @@ export async function updateCandidateAction(
   input: CandidateFormInputValues,
 ): Promise<ActionResult<{ id: string }>> {
   const session = await getServerAuthSession();
-  if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
+  if (!session?.user?.id) return { ok: false, message: "Unauthorized." };
 
-  const ctx = await requireOrgPermission(session.user.id, "candidate:manage");
+  let ctx: Awaited<ReturnType<typeof requireOrgPermission>>;
+  try {
+    ctx = await requireOrgPermission(session.user.id, "candidate:manage");
+  } catch (error) {
+    if (error instanceof Error && error.message === "Insufficient permissions.") {
+      return { ok: false, message: permissionDeniedMessage };
+    }
+    return { ok: false, message: "Unauthorized." };
+  }
   const parsed = candidateFormInputSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: "Invalid form data." };
+  if (!parsed.success) return { ok: false, message: "Invalid form data." };
   const values = normalizeCandidateFormValues(parsed.data);
   const email = normalizeEmail(parsed.data.email ?? null);
 
@@ -100,7 +118,7 @@ export async function updateCandidateAction(
       select: { id: true },
     });
     if (existing) {
-      return { ok: false, error: "A candidate with this email already exists in this organization." };
+      return { ok: false, message: "A candidate with this email already exists in this organization." };
     }
   }
 
@@ -121,32 +139,45 @@ export async function updateCandidateAction(
       },
     });
 
-    if (updated.count === 0) return { ok: false, error: "Candidate not found." };
+    if (updated.count === 0) return { ok: false, message: "Candidate not found." };
 
     revalidatePath("/candidates");
     revalidatePath(`/candidates/${id}`);
     return { ok: true, data: { id } };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      return { ok: false, error: "A candidate with this email already exists in this organization." };
+      return { ok: false, message: "A candidate with this email already exists in this organization." };
     }
-    return { ok: false, error: "Failed to update candidate." };
+    return { ok: false, message: "Failed to update candidate." };
   }
 }
 
 export async function deleteCandidateAction(id: string): Promise<ActionResult<{ id: string }>> {
   const session = await getServerAuthSession();
-  if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
+  if (!session?.user?.id) return { ok: false, message: "Unauthorized." };
 
-  const ctx = await requireOrgPermission(session.user.id, "candidate:manage");
-  const deleted = await db.candidate.deleteMany({
-    where: {
-      id,
-      organizationId: ctx.organization.id,
-    },
-  });
+  let ctx: Awaited<ReturnType<typeof requireOrgPermission>>;
+  try {
+    ctx = await requireOrgPermission(session.user.id, "candidate:manage");
+  } catch (error) {
+    if (error instanceof Error && error.message === "Insufficient permissions.") {
+      return { ok: false, message: permissionDeniedMessage };
+    }
+    return { ok: false, message: "Unauthorized." };
+  }
+  let deleted: { count: number };
+  try {
+    deleted = await db.candidate.deleteMany({
+      where: {
+        id,
+        organizationId: ctx.organization.id,
+      },
+    });
+  } catch {
+    return { ok: false, message: "Failed to delete candidate." };
+  }
 
-  if (deleted.count === 0) return { ok: false, error: "Candidate not found." };
+  if (deleted.count === 0) return { ok: false, message: "Candidate not found." };
 
   revalidatePath("/candidates");
   return { ok: true, data: { id } };

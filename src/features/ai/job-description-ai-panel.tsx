@@ -21,9 +21,11 @@ function asStringArray(value: unknown): string[] {
 export function JobDescriptionAiPanel({
   jobDescriptionId,
   aiMetadataJson,
+  canUseAi,
 }: {
   jobDescriptionId: string;
   aiMetadataJson: unknown;
+  canUseAi: boolean;
 }) {
   const router = useRouter();
   const [error, setError] = React.useState<string | null>(null);
@@ -47,6 +49,11 @@ export function JobDescriptionAiPanel({
   const hasAnalysis = Boolean(analysis.summary || analysis.criticalSkills.length || analysis.suggestedInterviewDomains.length);
 
   const onGenerate = async () => {
+    if (!canUseAi) {
+      setNotice(null);
+      setError("You do not have permission to perform this action.");
+      return;
+    }
     setError(null);
     setNotice(null);
     setLoading(true);
@@ -105,9 +112,13 @@ export function JobDescriptionAiPanel({
         )}
 
         <div className="flex items-center gap-2">
-          <Button type="button" onClick={onGenerate} disabled={loading}>
-            {loading ? "Generating..." : hasAnalysis ? "Regenerate AI Analysis" : "Generate AI Analysis"}
-          </Button>
+          {canUseAi ? (
+            <Button type="button" onClick={onGenerate} disabled={loading}>
+              {loading ? "Generating..." : hasAnalysis ? "Regenerate AI Analysis" : "Generate AI Analysis"}
+            </Button>
+          ) : (
+            <div className="text-sm text-muted-foreground">You do not have permission to generate AI analysis.</div>
+          )}
         </div>
       </CardContent>
     </Card>

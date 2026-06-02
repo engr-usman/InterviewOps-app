@@ -24,7 +24,7 @@ function formatDate(value: Date) {
   );
 }
 
-export function JobDescriptionTable({ rows }: { rows: JobDescriptionListRow[] }) {
+export function JobDescriptionTable({ rows, canManage }: { rows: JobDescriptionListRow[]; canManage: boolean }) {
   const router = useRouter();
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -38,10 +38,12 @@ export function JobDescriptionTable({ rows }: { rows: JobDescriptionListRow[] })
     try {
       const result = await deleteJobDescriptionAction(id);
       if (!result.ok) {
-        setError(result.error);
+        setError(result.message);
         return;
       }
       router.refresh();
+    } catch {
+      setError("You do not have permission to perform this action.");
     } finally {
       setDeletingId(null);
     }
@@ -75,18 +77,22 @@ export function JobDescriptionTable({ rows }: { rows: JobDescriptionListRow[] })
                     <Button asChild variant="outline" size="sm">
                       <Link href={`/job-descriptions/${row.id}`}>View</Link>
                     </Button>
-                    <Button asChild variant="outline" size="sm">
-                      <Link href={`/job-descriptions/${row.id}/edit`}>Edit</Link>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="sm"
-                      disabled={deletingId === row.id}
-                      onClick={() => onDelete(row.id)}
-                    >
-                      {deletingId === row.id ? "Deleting..." : "Delete"}
-                    </Button>
+                    {canManage ? (
+                      <>
+                        <Button asChild variant="outline" size="sm">
+                          <Link href={`/job-descriptions/${row.id}/edit`}>Edit</Link>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          disabled={deletingId === row.id}
+                          onClick={() => onDelete(row.id)}
+                        >
+                          {deletingId === row.id ? "Deleting..." : "Delete"}
+                        </Button>
+                      </>
+                    ) : null}
                   </div>
                 </TableCell>
               </TableRow>
@@ -97,4 +103,3 @@ export function JobDescriptionTable({ rows }: { rows: JobDescriptionListRow[] })
     </div>
   );
 }
-

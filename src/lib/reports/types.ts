@@ -11,6 +11,13 @@ export type BaseReport = {
 
 export type InterviewReport = BaseReport & {
   kind: "interview";
+  generatedBy?: {
+    userId: string;
+    name: string;
+    role: string;
+  };
+  candidateSummary?: string | null;
+  jobDescriptionSummary?: string | null;
   interview: {
     id: string;
     status: string;

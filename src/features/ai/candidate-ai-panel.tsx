@@ -18,7 +18,15 @@ function asStringArray(value: unknown): string[] {
   return value.filter((v) => typeof v === "string") as string[];
 }
 
-export function CandidateAiPanel({ candidateId, aiMetadataJson }: { candidateId: string; aiMetadataJson: unknown }) {
+export function CandidateAiPanel({
+  candidateId,
+  aiMetadataJson,
+  canUseAi,
+}: {
+  candidateId: string;
+  aiMetadataJson: unknown;
+  canUseAi: boolean;
+}) {
   const router = useRouter();
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
@@ -43,6 +51,11 @@ export function CandidateAiPanel({ candidateId, aiMetadataJson }: { candidateId:
   }, [aiMetadataJson]);
 
   const onGenerate = async () => {
+    if (!canUseAi) {
+      setNotice(null);
+      setError("You do not have permission to perform this action.");
+      return;
+    }
     setError(null);
     setNotice(null);
     setLoading(true);
@@ -107,9 +120,13 @@ export function CandidateAiPanel({ candidateId, aiMetadataJson }: { candidateId:
         )}
 
         <div className="flex items-center gap-2">
-          <Button type="button" onClick={onGenerate} disabled={loading}>
-            {loading ? "Generating..." : hasAnalysis ? "Regenerate AI Analysis" : "Generate AI Analysis"}
-          </Button>
+          {canUseAi ? (
+            <Button type="button" onClick={onGenerate} disabled={loading}>
+              {loading ? "Generating..." : hasAnalysis ? "Regenerate AI Analysis" : "Generate AI Analysis"}
+            </Button>
+          ) : (
+            <div className="text-sm text-muted-foreground">You do not have permission to generate AI analysis.</div>
+          )}
         </div>
       </CardContent>
     </Card>

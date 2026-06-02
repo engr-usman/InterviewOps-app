@@ -20,7 +20,7 @@ export async function createQuestionAction(
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
   try {
-    await requireOrgPermission(session.user.id, "questionBank:manage");
+    await requireOrgPermission(session.user.id, "questionBank:create");
   } catch {
     return { ok: false, error: "Insufficient permissions." };
   }

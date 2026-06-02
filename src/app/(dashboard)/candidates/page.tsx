@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { prisma } from "@/lib/prisma";
 import { CandidateTable, type CandidateListRow } from "@/features/candidates/candidate-table";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
-import { hasPermission } from "@/server/services/rbac";
+import { canManageCandidates } from "@/server/services/rbac";
 
 type Db = {
   candidate: { findMany: (args: unknown) => Promise<CandidateListRow[]> };
@@ -24,7 +24,7 @@ export default async function CandidatesPage({
   if (!session) redirect("/login");
 
   const ctx = await getOrgContextOrThrow(session.user.id);
-  const canManageCandidates = hasPermission(ctx.role, "candidate:manage");
+  const canManage = canManageCandidates(ctx.role);
 
   const { q } = (await searchParams) ?? {};
   const query = q?.trim();
@@ -78,7 +78,7 @@ export default async function CandidatesPage({
             Search
           </Button>
         </form>
-        {canManageCandidates ? (
+        {canManage ? (
           <Button asChild>
             <Link href="/candidates/new">Add Candidate</Link>
           </Button>
@@ -97,7 +97,7 @@ export default async function CandidatesPage({
               <div className="text-sm text-muted-foreground">
                 Create your first candidate to start building interview sessions.
               </div>
-              {canManageCandidates ? (
+              {canManage ? (
                 <div className="pt-2">
                   <Button asChild>
                     <Link href="/candidates/new">Add Candidate</Link>
@@ -110,7 +110,7 @@ export default async function CandidatesPage({
           </CardContent>
         </Card>
       ) : (
-        <CandidateTable rows={rows} />
+        <CandidateTable rows={rows} canManage={canManage} />
       )}
     </div>
   );

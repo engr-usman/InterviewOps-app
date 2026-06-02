@@ -134,6 +134,7 @@ export function TeamManagement({
                 </option>
               ))}
             </select>
+            <div className="text-xs text-muted-foreground">Choose the minimum role needed for this member.</div>
           </div>
         </div>
         <div className="mt-3 flex items-center gap-2">
@@ -170,6 +171,46 @@ export function TeamManagement({
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {notice ? <p className="text-sm text-muted-foreground">{notice}</p> : null}
+
+      <div className="rounded-lg border">
+        <div className="border-b p-4 text-sm font-medium">Role permissions guide</div>
+        <div className="overflow-x-auto p-4">
+          <table className="w-full min-w-[720px] text-left text-sm">
+            <thead>
+              <tr className="border-b">
+                <th className="py-2 pr-4 font-medium">Role</th>
+                <th className="py-2 font-medium">What they can do</th>
+              </tr>
+            </thead>
+            <tbody className="[&_tr:last-child]:border-b-0">
+              <tr className="border-b align-top">
+                <td className="py-3 pr-4 font-medium">Owner</td>
+                <td className="py-3 text-muted-foreground">
+                  Full organization control. Can manage billing, settings, team members, candidates, job descriptions, interviews, reports, analytics, and AI settings.
+                </td>
+              </tr>
+              <tr className="border-b align-top">
+                <td className="py-3 pr-4 font-medium">Admin</td>
+                <td className="py-3 text-muted-foreground">
+                  Can manage hiring operations including candidates, job descriptions, interviews, reports, and analytics. Cannot remove/downgrade the owner or manage billing-critical settings.
+                </td>
+              </tr>
+              <tr className="border-b align-top">
+                <td className="py-3 pr-4 font-medium">Interviewer</td>
+                <td className="py-3 text-muted-foreground">
+                  Can view candidates and job descriptions, conduct interviews, evaluate questions, save scorecards, and view related reports. Cannot manage settings, billing, or team members.
+                </td>
+              </tr>
+              <tr className="border-b align-top">
+                <td className="py-3 pr-4 font-medium">Viewer</td>
+                <td className="py-3 text-muted-foreground">
+                  Read-only access. Can view candidates, job descriptions, interviews, reports, and analytics. Cannot create, edit, delete, upload, evaluate, generate, or change settings.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       <div className="rounded-lg border">
         <div className="border-b p-4 text-sm font-medium">Members</div>

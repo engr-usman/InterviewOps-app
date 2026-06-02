@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { RecommendationBadge } from "@/components/ui/recommendation-badge";
 import { prisma } from "@/lib/prisma";
 import { cn } from "@/lib/utils";
 import type { InterviewReport } from "@/lib/reports/types";
@@ -29,11 +30,14 @@ function formatDateTime(value: Date) {
   }).format(value);
 }
 
-function recBadgeVariant(rec: Recommendation | null): "secondary" | "muted" | "outline" {
-  if (!rec) return "muted";
-  if (rec === "STRONG_HIRE" || rec === "HIRE") return "secondary";
-  if (rec === "BORDERLINE") return "outline";
-  return "muted";
+function toRecommendation(value: string | null): Recommendation | null {
+  if (!value) return null;
+  if (value === "STRONG_HIRE") return "STRONG_HIRE";
+  if (value === "HIRE") return "HIRE";
+  if (value === "BORDERLINE") return "BORDERLINE";
+  if (value === "NO_HIRE") return "NO_HIRE";
+  if (value === "STRONG_NO_HIRE") return "STRONG_NO_HIRE";
+  return null;
 }
 
 function scoreToneBadge(score: number | null): { label: string; className: string } {
@@ -68,6 +72,72 @@ function readText(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
+function isCleanSummary(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const text = value.trim();
+  if (text.length < 20) return false;
+
+  const lower = text.toLowerCase();
+  const has = (needle: string) => lower.includes(needle.toLowerCase());
+
+  if (has("%pdf")) return false;
+  if (/\bobj\b/i.test(text)) return false;
+  if (/\bendobj\b/i.test(text)) return false;
+  if (has("xref")) return false;
+  if (has("trailer")) return false;
+  if (has("/creator") || has("creator")) return false;
+  if (has("/producer") || has("producer")) return false;
+  if (has("/creationdate") || has("creationdate")) return false;
+  if (has("headlesschrome")) return false;
+
+  if (has("mock ai summary") || has("(mock)") || /\bmock\b/i.test(text)) return false;
+  if (has("summarize this resume")) return false;
+  if (has("pdf text extraction")) return false;
+  if (has("raw extracted")) return false;
+
+  const pdfDictTokens = (text.match(/<<|>>|\/type\b|\/pages\b|\/catalog\b|\/xobject\b|\/font\b/gi) ?? []).length;
+  if (pdfDictTokens >= 2) return false;
+
+  const pdfNameTokens = (text.match(/\/[A-Za-z]{2,}/g) ?? []).length;
+  if (pdfNameTokens >= 4) return false;
+
+  const symbolCount = (text.match(/[<>/%]/g) ?? []).length;
+  if (symbolCount >= 10 && symbolCount / text.length > 0.02) return false;
+
+  return true;
+}
+
+function isCleanJdSummary(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const text = value.trim();
+  if (text.length === 0) return false;
+
+  const lower = text.toLowerCase();
+  const has = (needle: string) => lower.includes(needle.toLowerCase());
+
+  if (has("%pdf")) return false;
+  if (/\bobj\b/i.test(text)) return false;
+  if (/\bendobj\b/i.test(text)) return false;
+  if (has("xref")) return false;
+  if (has("trailer")) return false;
+  if (has("/creator") || has("creator")) return false;
+  if (has("/producer") || has("producer")) return false;
+  if (has("/creationdate") || has("creationdate")) return false;
+  if (has("headlesschrome")) return false;
+  if (has("mock") || has("lorem ipsum")) return false;
+  if (has("the text indicates")) return false;
+
+  const pdfDictTokens = (text.match(/<<|>>|\/type\b|\/pages\b|\/catalog\b/gi) ?? []).length;
+  if (pdfDictTokens >= 2) return false;
+
+  return true;
+}
+
+function cleanCandidateSummaryForDisplay(value: unknown, fallback: string): string {
+  if (isCleanSummary(value)) return String(value).trim();
+  return fallback;
+}
+
 function toListFromMultiline(value: unknown): string[] {
   if (typeof value !== "string") return [];
   return value
@@ -76,6 +146,34 @@ function toListFromMultiline(value: unknown): string[] {
     .filter(Boolean)
     .map((l) => l.replace(/^[-*]\s+/, "").trim())
     .filter(Boolean);
+}
+
+function buildJobDescriptionSummary(job: {
+  title: string;
+  department: string | null;
+  seniorityLevel: string | null;
+  location: string | null;
+  descriptionText: string | null;
+  requirementsText: string | null;
+}): string {
+  const roleLine = `Role: ${job.title.trim()}`;
+  const deptLine = job.department ? `Department: ${job.department}` : null;
+  const seniorityLine = job.seniorityLevel ? `Seniority: ${job.seniorityLevel}` : null;
+  const locationLine = job.location ? `Location: ${job.location}` : null;
+
+  const requirements = toListFromMultiline(job.requirementsText).slice(0, 8);
+  const responsibilities = toListFromMultiline(job.descriptionText).slice(0, 8);
+
+  const header = [roleLine, deptLine, seniorityLine, locationLine].filter(Boolean).join("\n");
+  const reqBlock =
+    requirements.length > 0 ? `\n\nKey requirements:\n${requirements.map((r) => `• ${r}`).join("\n")}` : "";
+  const respBlock =
+    responsibilities.length > 0 ? `\n\nResponsibilities:\n${responsibilities.map((r) => `• ${r}`).join("\n")}` : "";
+
+  const built = `${header}${reqBlock}${respBlock}`.trim();
+  if (!built || built === `Role: ${job.title.trim()}`) return "No structured job description summary available.";
+  if (!isCleanJdSummary(built)) return "No structured job description summary available.";
+  return built;
 }
 
 export default async function ReportDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -127,6 +225,43 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
     interviewerConcerns: null,
     interviewerFinalNotes: null,
   };
+
+  const candidateSummaryRaw = payload.candidateSummary ?? details.candidateSummary ?? null;
+  const jobDescriptionSummaryRaw = payload.jobDescriptionSummary ?? details.jobDescriptionSummary ?? null;
+  const candidateSummaryClean = cleanCandidateSummaryForDisplay(candidateSummaryRaw, "No clean resume summary available.");
+  const jobDescriptionSummaryFromReport = isCleanJdSummary(jobDescriptionSummaryRaw)
+    ? String(jobDescriptionSummaryRaw).trim()
+    : null;
+  const jobDescriptionSummaryFromDb = !jobDescriptionSummaryFromReport
+    ? await prisma.jobDescription
+        .findFirst({
+          where: { id: payload.interview.jobDescription.id, organizationId: ctx.organization.id },
+          select: {
+            title: true,
+            department: true,
+            location: true,
+            seniorityLevel: true,
+            descriptionText: true,
+            requirementsText: true,
+          },
+        })
+        .then((jd) => {
+          if (!jd) return null;
+          return buildJobDescriptionSummary({
+            title: jd.title,
+            department: jd.department ?? null,
+            seniorityLevel: jd.seniorityLevel ? String(jd.seniorityLevel) : null,
+            location: jd.location ?? null,
+            descriptionText: jd.descriptionText ?? null,
+            requirementsText: jd.requirementsText ?? null,
+          });
+        })
+    : null;
+  const jobDescriptionSummary = jobDescriptionSummaryFromReport ?? jobDescriptionSummaryFromDb ?? "No structured job description summary available.";
+  const candidateSummary =
+    candidateSummaryClean === "No clean resume summary available."
+      ? `Resume uploaded successfully.\n\nCandidate:\n${report.interview.candidate.fullName}\n\nApplied Role:\n${report.interview.jobDescription.title}\n\nResume summary unavailable because no structured resume analysis was found.`
+      : candidateSummaryClean;
 
   const scorecardJson = (report.interview.scorecard?.scorecardJson ?? null) as
     | null
@@ -214,7 +349,7 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
           <CardTitle className="flex flex-wrap items-center gap-2">
             <span className="min-w-0 truncate">{report.title}</span>
             <Badge variant="muted">{String(report.type as ReportType)}</Badge>
-            <Badge variant={recBadgeVariant(recommendation)}>{recommendation ? String(recommendation) : "—"}</Badge>
+            <RecommendationBadge value={recommendation} />
             <Badge variant="outline">{typeof overallScore === "number" ? overallScore.toFixed(2) : "—"}</Badge>
           </CardTitle>
           <div className="text-sm text-muted-foreground">{report.interview.candidate.fullName} • {report.interview.jobDescription.title}</div>
@@ -312,7 +447,9 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
                 </div>
                 <div className="rounded-md border p-3 text-sm">
                   <div className="text-muted-foreground">Recommendation</div>
-                  <div className="mt-1 text-lg font-semibold">{breakdown.recommendation ?? "—"}</div>
+                  <div className="mt-1">
+                    <RecommendationBadge value={toRecommendation(breakdown.recommendation)} emptyLabel="Not submitted" />
+                  </div>
                   {breakdown.manualOverride ? (
                     <div className="mt-1 text-xs text-muted-foreground">Manual Recommendation Override</div>
                   ) : null}
@@ -321,14 +458,39 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
             </div>
           ) : null}
 
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Scoring Formula</div>
+            <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+              <div className="grid gap-1 font-mono">
+                <div>Technical Average ............. 50%</div>
+                <div>Communication ................. 15%</div>
+                <div>Problem Solving ............... 20%</div>
+                <div>Interviewer Technical Assessment ... 15%</div>
+              </div>
+              <div className="mt-4 font-mono">
+                <div>Overall Score =</div>
+                <div>(Technical × 0.50)</div>
+                <div>+ (Communication × 0.15)</div>
+                <div>+ (Problem Solving × 0.20)</div>
+                <div>+ (Interviewer Technical Assessment × 0.15)</div>
+              </div>
+              <div className="mt-4">
+                Final calculated score:{" "}
+                <span className="font-medium">
+                  {typeof breakdown?.overallScore === "number" ? breakdown.overallScore.toFixed(2) : "—"}
+                </span>
+              </div>
+            </div>
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="rounded-lg border p-4">
               <div className="text-sm font-medium">Candidate summary</div>
-              <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{details.candidateSummary ?? "—"}</div>
+              <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{candidateSummary}</div>
             </div>
             <div className="rounded-lg border p-4">
               <div className="text-sm font-medium">Job description summary</div>
-              <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{details.jobDescriptionSummary ?? "—"}</div>
+              <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{jobDescriptionSummary}</div>
             </div>
           </div>
 
@@ -345,7 +507,10 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
               <div className="text-sm font-medium">Score summary</div>
               <div className="mt-2 space-y-1 text-sm text-muted-foreground">
                 <div>Overall: {typeof overallScore === "number" ? overallScore.toFixed(2) : "—"}</div>
-                <div>Recommendation: {recommendation ? String(recommendation) : "—"}</div>
+                <div className="flex items-center gap-2">
+                  <span>Recommendation:</span>
+                  <RecommendationBadge value={recommendation} emptyLabel="Not submitted" />
+                </div>
               </div>
             </div>
             <div className="rounded-lg border p-4">
@@ -353,6 +518,18 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
               <div className="mt-2 space-y-1 text-sm text-muted-foreground">
                 <div>{formatDateTime(report.createdAt)}</div>
                 <div className="text-xs">v{payload.version}</div>
+                <div className="pt-2">
+                  <div className="text-xs text-muted-foreground">Generated By</div>
+                  <div className="text-sm text-muted-foreground">
+                    {payload.generatedBy?.name ?? "Unknown User"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Role</div>
+                  <div className="text-sm text-muted-foreground">
+                    {payload.generatedBy?.role ?? "UNKNOWN"}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -362,7 +539,7 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
           <div className="space-y-2">
             <div className="text-sm font-medium">Recommendation summary</div>
             <div className="rounded-lg border p-4 text-sm text-muted-foreground whitespace-pre-wrap">
-              {report.interview.scorecard?.summaryText ?? "—"}
+              {readText(report.interview.scorecard?.summaryText) ?? "No recommendation notes provided."}
             </div>
           </div>
 
@@ -371,7 +548,7 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
               <div className="text-sm font-medium">Strengths</div>
               <div className="mt-2 space-y-1 text-sm text-muted-foreground">
                 {strengths.length === 0 ? (
-                  <div>—</div>
+                  <div>No strengths recorded.</div>
                 ) : (
                   strengths.slice(0, 12).map((s) => <div key={s}>• {s}</div>)
                 )}
@@ -381,7 +558,7 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
               <div className="text-sm font-medium">Weaknesses</div>
               <div className="mt-2 space-y-1 text-sm text-muted-foreground">
                 {weaknesses.length === 0 ? (
-                  <div>—</div>
+                  <div>No weaknesses recorded.</div>
                 ) : (
                   weaknesses.slice(0, 12).map((s) => <div key={s}>• {s}</div>)
                 )}
@@ -473,7 +650,7 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
           <div className="space-y-2">
             <div className="text-sm font-medium">Final notes</div>
             <div className="rounded-lg border p-4 text-sm text-muted-foreground whitespace-pre-wrap">
-              {details.interviewerFinalNotes ?? readText(scorecardJson?.finalRecommendation) ?? "—"}
+              {readText(details.interviewerFinalNotes ?? scorecardJson?.finalRecommendation) ?? "—"}
             </div>
           </div>
         </CardContent>

@@ -44,6 +44,8 @@ async function resequenceInterviewQuestions(tx: Prisma.TransactionClient, interv
   }
 }
 
+const permissionDeniedMessage = "You do not have permission to perform this action.";
+
 export async function generateInterviewQuestionsAction(
   interviewId: string,
   input: unknown,
@@ -51,7 +53,15 @@ export async function generateInterviewQuestionsAction(
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
-  const ctx = await requireOrgPermission(session.user.id, "interview:manage");
+  let ctx: Awaited<ReturnType<typeof requireOrgPermission>>;
+  try {
+    ctx = await requireOrgPermission(session.user.id, "interview:questions:manage");
+  } catch (error) {
+    if (error instanceof Error && error.message === "Insufficient permissions.") {
+      return { ok: false, error: permissionDeniedMessage };
+    }
+    return { ok: false, error: "Unauthorized." };
+  }
   const parsed = generateQuestionsSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid inputs." };
 
@@ -137,7 +147,15 @@ export async function addInterviewQuestionFromBankAction(
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
-  const ctx = await requireOrgPermission(session.user.id, "interview:manage");
+  let ctx: Awaited<ReturnType<typeof requireOrgPermission>>;
+  try {
+    ctx = await requireOrgPermission(session.user.id, "interview:questions:manage");
+  } catch (error) {
+    if (error instanceof Error && error.message === "Insufficient permissions.") {
+      return { ok: false, error: permissionDeniedMessage };
+    }
+    return { ok: false, error: "Unauthorized." };
+  }
   const parsed = addQuestionSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid inputs." };
 
@@ -204,7 +222,15 @@ export async function removeInterviewQuestionAction(
   const session = await getServerAuthSession();
   if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
 
-  const ctx = await requireOrgPermission(session.user.id, "interview:manage");
+  let ctx: Awaited<ReturnType<typeof requireOrgPermission>>;
+  try {
+    ctx = await requireOrgPermission(session.user.id, "interview:questions:manage");
+  } catch (error) {
+    if (error instanceof Error && error.message === "Insufficient permissions.") {
+      return { ok: false, error: permissionDeniedMessage };
+    }
+    return { ok: false, error: "Unauthorized." };
+  }
   try {
     const db = prisma as unknown as Db;
     const interview = await db.interview.findFirst({

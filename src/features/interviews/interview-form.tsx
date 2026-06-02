@@ -31,7 +31,7 @@ type InterviewFormProps = {
     | { ok: true; data: { id: string } }
     | {
         ok: false;
-        error: string;
+        message: string;
       }
   >;
   submitLabel: string;
@@ -69,7 +69,7 @@ export function InterviewForm({
     setFormError(null);
     const result = await action(values);
     if (!result.ok) {
-      setFormError(result.error);
+      setFormError(result.message);
       return;
     }
     router.push(`/interviews/${result.data.id}`);

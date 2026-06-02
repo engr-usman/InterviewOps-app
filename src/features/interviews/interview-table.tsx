@@ -43,10 +43,12 @@ export function InterviewTable({ rows, canManage }: { rows: InterviewListRow[]; 
     try {
       const result = await deleteInterviewAction(id);
       if (!result.ok) {
-        setError(result.error);
+        setError(result.message);
         return;
       }
       router.refresh();
+    } catch {
+      setError("You do not have permission to perform this action.");
     } finally {
       setDeletingId(null);
     }

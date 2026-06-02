@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -8,8 +9,10 @@ import type { Recommendation } from "@prisma/client";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RecommendationBadge } from "@/components/ui/recommendation-badge";
 import { cn } from "@/lib/utils";
 import {
   evaluationStatusValues,
@@ -34,6 +37,7 @@ import {
   generateInterviewSummaryAction,
   suggestFollowUpQuestionsAction,
 } from "@/app/(dashboard)/ai/actions";
+import { generateInterviewReportAndRedirectAction } from "@/app/(dashboard)/reports/actions";
 
 export type SessionCandidate = {
   id: string;
@@ -95,16 +99,6 @@ function getEvalMeta(q: SessionQuestion): { strengthsNotes: string; weaknessesNo
   };
 }
 
-function recommendationLabel(value: Recommendation | null): string {
-  if (!value) return "—";
-  if (value === "STRONG_HIRE") return "Strong Hire";
-  if (value === "HIRE") return "Hire";
-  if (value === "BORDERLINE") return "Borderline";
-  if (value === "NO_HIRE") return "Reject";
-  if (value === "STRONG_NO_HIRE") return "Reject";
-  return String(value);
-}
-
 function computeOverallScore({
   technicalAverage,
   communication,
@@ -146,6 +140,9 @@ export function InterviewSessionConsole({
   jobDescription,
   questions,
   scorecard,
+  latestReportId,
+  canViewReports,
+  canGenerateReports,
 }: {
   interviewId: string;
   interviewStatus: string;
@@ -153,6 +150,9 @@ export function InterviewSessionConsole({
   jobDescription: SessionJobDescription;
   questions: SessionQuestion[];
   scorecard: SessionScorecard;
+  latestReportId: string | null;
+  canViewReports: boolean;
+  canGenerateReports: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -610,6 +610,8 @@ export function InterviewSessionConsole({
   const liveRecommendation = autoRecommendation(liveOverall);
   const recommendationToShow = liveRecommendation ?? scorecard?.recommendation ?? null;
   const overallToShow = typeof liveOverall === "number" ? liveOverall : scorecardOverall;
+  const canGenerateReport =
+    interviewStatus === "COMPLETED" && Boolean(scorecard) && progress.total > 0 && progress.evaluated > 0;
 
   return (
     <div className="space-y-6">
@@ -645,8 +647,30 @@ export function InterviewSessionConsole({
               Back to Interview Detail
             </Button>
           )}
+          {latestReportId && canViewReports ? (
+            <Button asChild variant="outline">
+              <Link href={`/reports/${latestReportId}`}>View Report</Link>
+            </Button>
+          ) : null}
+          {canGenerateReports && interviewStatus === "COMPLETED" ? (
+            <form action={generateInterviewReportAndRedirectAction}>
+              <input type="hidden" name="interviewId" value={interviewId} />
+              <input type="hidden" name="type" value="FULL" />
+              <input type="hidden" name="force" value={latestReportId ? "1" : "0"} />
+              <input type="hidden" name="returnTo" value={`/interviews/${interviewId}/session`} />
+              <FormSubmitButton disabled={!canGenerateReport} pendingText={latestReportId ? "Regenerating..." : "Generating..."}>
+                {latestReportId ? "Regenerate Report" : "Generate Report"}
+              </FormSubmitButton>
+            </form>
+          ) : null}
         </div>
       </div>
+
+      {canGenerateReports && interviewStatus === "COMPLETED" && !canGenerateReport ? (
+        <div className="rounded-md border p-3 text-sm text-muted-foreground">
+          Complete the interview with evaluated questions and a saved scorecard before generating a report.
+        </div>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-12">
         <div className="lg:col-span-4 space-y-6">
@@ -1090,7 +1114,9 @@ export function InterviewSessionConsole({
                 </div>
                 <div className="rounded-md border p-3 text-sm">
                   <div className="text-muted-foreground">Recommendation</div>
-                  <div className="text-lg font-semibold">{recommendationLabel(recommendationToShow)}</div>
+                  <div className="mt-1">
+                    <RecommendationBadge value={recommendationToShow} emptyLabel="Not submitted" />
+                  </div>
                 </div>
               </div>
 

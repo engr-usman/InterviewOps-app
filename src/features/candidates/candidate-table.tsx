@@ -33,7 +33,7 @@ function resumeStatus(row: CandidateListRow) {
   return "Not uploaded";
 }
 
-export function CandidateTable({ rows }: { rows: CandidateListRow[] }) {
+export function CandidateTable({ rows, canManage }: { rows: CandidateListRow[]; canManage: boolean }) {
   const router = useRouter();
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -47,10 +47,12 @@ export function CandidateTable({ rows }: { rows: CandidateListRow[] }) {
     try {
       const result = await deleteCandidateAction(id);
       if (!result.ok) {
-        setError(result.error);
+        setError(result.message);
         return;
       }
       router.refresh();
+    } catch {
+      setError("You do not have permission to perform this action.");
     } finally {
       setDeletingId(null);
     }
@@ -88,18 +90,22 @@ export function CandidateTable({ rows }: { rows: CandidateListRow[] }) {
                     <Button asChild variant="outline" size="sm">
                       <Link href={`/candidates/${row.id}`}>View</Link>
                     </Button>
-                    <Button asChild variant="outline" size="sm">
-                      <Link href={`/candidates/${row.id}/edit`}>Edit</Link>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="sm"
-                      disabled={deletingId === row.id}
-                      onClick={() => onDelete(row.id)}
-                    >
-                      {deletingId === row.id ? "Deleting..." : "Delete"}
-                    </Button>
+                    {canManage ? (
+                      <>
+                        <Button asChild variant="outline" size="sm">
+                          <Link href={`/candidates/${row.id}/edit`}>Edit</Link>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          disabled={deletingId === row.id}
+                          onClick={() => onDelete(row.id)}
+                        >
+                          {deletingId === row.id ? "Deleting..." : "Delete"}
+                        </Button>
+                      </>
+                    ) : null}
                   </div>
                 </TableCell>
               </TableRow>

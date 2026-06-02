@@ -11,7 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { computeCandidateVsJobDescriptionMatch } from "@/server/services/match-service";
 import { CandidateAiPanel } from "@/features/ai/candidate-ai-panel";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
-import { hasPermission } from "@/server/services/rbac";
+import { canManageCandidates, canUseAi } from "@/server/services/rbac";
 import { getCandidateResumeSkillMatches } from "@/server/services/resume-service";
 
 export const dynamic = "force-dynamic";
@@ -225,7 +225,8 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
   if (!session) redirect("/login");
 
   const ctx = await getOrgContextOrThrow(session.user.id);
-  const canManage = hasPermission(ctx.role, "candidate:manage");
+  const canManage = canManageCandidates(ctx.role);
+  const canAi = canUseAi(ctx.role);
 
   const { id } = await params;
 
@@ -750,7 +751,7 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
         </CardContent>
       </Card>
 
-      <CandidateAiPanel candidateId={candidate.id} aiMetadataJson={candidate.aiMetadataJson} />
+      <CandidateAiPanel candidateId={candidate.id} aiMetadataJson={candidate.aiMetadataJson} canUseAi={canAi} />
 
       <Card>
         <CardHeader>

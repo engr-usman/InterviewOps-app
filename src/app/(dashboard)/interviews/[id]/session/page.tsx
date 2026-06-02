@@ -41,6 +41,7 @@ type InterviewSessionRow = {
 
 type Db = {
   interview: { findFirst: (args: unknown) => Promise<InterviewSessionRow | null> };
+  report: { findFirst: (args: unknown) => Promise<{ id: string } | null> };
 };
 
 export default async function InterviewSessionPage({
@@ -54,6 +55,8 @@ export default async function InterviewSessionPage({
   const ctx = await getOrgContextOrThrow(session.user.id);
   const canConduct = hasPermission(ctx.role, "interview:conduct");
   const canView = hasPermission(ctx.role, "interview:view") || canConduct || hasPermission(ctx.role, "interview:manage");
+  const canViewReports = hasPermission(ctx.role, "reports:view");
+  const canGenerateReports = hasPermission(ctx.role, "reports:generate");
 
   const { id } = await params;
 
@@ -112,6 +115,12 @@ export default async function InterviewSessionPage({
   });
 
   if (!interview) notFound();
+
+  const latestReport = (await (prisma as unknown as Db).report.findFirst({
+    where: { interviewId: interview.id, organizationId: ctx.organization.id },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true },
+  })) as { id: string } | null;
 
   if (!canView) {
     return (
@@ -180,6 +189,9 @@ export default async function InterviewSessionPage({
           : null,
       }))}
       scorecard={interview.scorecard ?? null}
+      latestReportId={latestReport?.id ?? null}
+      canViewReports={canViewReports}
+      canGenerateReports={canGenerateReports}
     />
   );
 }

@@ -678,6 +678,41 @@ function deterministicResumeSummary(input: {
   return line2 ? `${line1} ${line2}` : line1;
 }
 
+function isCleanResumeSummary(value: unknown): { ok: true } | { ok: false; reason: string } {
+  if (typeof value !== "string") return { ok: false, reason: "not-a-string" };
+  const text = value.trim();
+  if (text.length < 20) return { ok: false, reason: "too-short" };
+
+  const lower = text.toLowerCase();
+  const has = (needle: string) => lower.includes(needle.toLowerCase());
+
+  if (has("%pdf")) return { ok: false, reason: "pdf-header" };
+  if (/\bobj\b/i.test(text)) return { ok: false, reason: "pdf-obj" };
+  if (/\bendobj\b/i.test(text)) return { ok: false, reason: "pdf-endobj" };
+  if (has("xref")) return { ok: false, reason: "pdf-xref" };
+  if (has("trailer")) return { ok: false, reason: "pdf-trailer" };
+  if (has("/creator") || has("creator")) return { ok: false, reason: "pdf-creator" };
+  if (has("/producer") || has("producer")) return { ok: false, reason: "pdf-producer" };
+  if (has("/creationdate") || has("creationdate")) return { ok: false, reason: "pdf-creationdate" };
+  if (has("headlesschrome")) return { ok: false, reason: "headlesschrome" };
+
+  if (has("mock ai summary") || has("(mock)") || /\bmock\b/i.test(text)) return { ok: false, reason: "mock" };
+  if (has("summarize this resume")) return { ok: false, reason: "prompt-text" };
+  if (has("pdf text extraction")) return { ok: false, reason: "parser-text" };
+  if (has("raw extracted")) return { ok: false, reason: "raw-extracted" };
+
+  const pdfDictTokens = (text.match(/<<|>>|\/type\b|\/pages\b|\/catalog\b|\/xobject\b|\/font\b/gi) ?? []).length;
+  if (pdfDictTokens >= 2) return { ok: false, reason: "pdf-dict-tokens" };
+
+  const pdfNameTokens = (text.match(/\/[A-Za-z]{2,}/g) ?? []).length;
+  if (pdfNameTokens >= 4) return { ok: false, reason: "pdf-name-tokens" };
+
+  const symbolCount = (text.match(/[<>/%]/g) ?? []).length;
+  if (symbolCount >= 10 && symbolCount / text.length > 0.02) return { ok: false, reason: "pdf-symbol-ratio" };
+
+  return { ok: true };
+}
+
 function extractLines(text: string): string[] {
   return text
     .split(/\r?\n/)
@@ -1045,9 +1080,24 @@ async function buildResumeJson(
     return { ...fallbackResult, parserWarnings: uniqueStrings(parserWarnings) };
   }
 
-  if (!fallbackEnabled) return toParsedFromAi(aiResult.analysis, "ai", aiResult.analysis.parserWarnings);
+  const fallbackSummaryVerdict = isCleanResumeSummary(fallbackSummary);
+  const safeFallbackSummary = fallbackSummaryVerdict.ok ? fallbackSummary.trim() : "No clean resume summary available.";
 
-  const hybrid = toParsedFromAi(aiResult.analysis, "hybrid", aiResult.analysis.parserWarnings);
+  const aiSummaryVerdict = isCleanResumeSummary(aiResult.analysis.summary);
+  const analysisForUse = aiSummaryVerdict.ok
+    ? { ...aiResult.analysis, summary: aiResult.analysis.summary.trim() }
+    : {
+        ...aiResult.analysis,
+        summary: safeFallbackSummary,
+        parserWarnings: uniqueStrings([
+          ...(aiResult.analysis.parserWarnings ?? []),
+          `AI summary rejected (${aiSummaryVerdict.reason}).`,
+        ]),
+      };
+
+  if (!fallbackEnabled) return toParsedFromAi(analysisForUse, "ai", analysisForUse.parserWarnings);
+
+  const hybrid = toParsedFromAi(analysisForUse, "hybrid", analysisForUse.parserWarnings);
   hybrid.skills = uniqueStrings([...hybrid.skills, ...fallbackResult.skills]).slice(0, 120);
   hybrid.certifications = uniqueStrings([...hybrid.certifications, ...fallbackResult.certifications]);
   hybrid.trainings = uniqueStrings([...hybrid.trainings, ...fallbackResult.trainings]);

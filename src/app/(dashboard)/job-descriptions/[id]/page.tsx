@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { RequirementType, SourceType } from "@prisma/client";
 import { JobDescriptionAiPanel } from "@/features/ai/job-description-ai-panel";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
+import { canManageJobDescriptions, canUseAi } from "@/server/services/rbac";
 
 type JobDescriptionSkillRequirementRow = {
   requirementType: RequirementType;
@@ -62,6 +63,8 @@ export default async function JobDescriptionDetailPage({
   if (!session) redirect("/login");
 
   const ctx = await getOrgContextOrThrow(session.user.id);
+  const canManage = canManageJobDescriptions(ctx.role);
+  const canAi = canUseAi(ctx.role);
 
   const { id } = await params;
 
@@ -160,9 +163,11 @@ export default async function JobDescriptionDetailPage({
           <Button asChild variant="outline">
             <Link href="/job-descriptions">Back to Job Descriptions</Link>
           </Button>
-          <Button asChild>
-            <Link href={`/job-descriptions/${jd.id}/edit`}>Edit Job Description</Link>
-          </Button>
+          {canManage ? (
+            <Button asChild>
+              <Link href={`/job-descriptions/${jd.id}/edit`}>Edit Job Description</Link>
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -240,7 +245,7 @@ export default async function JobDescriptionDetailPage({
         </CardContent>
       </Card>
 
-      <JobDescriptionAiPanel jobDescriptionId={jd.id} aiMetadataJson={jd.aiMetadataJson} />
+      <JobDescriptionAiPanel jobDescriptionId={jd.id} aiMetadataJson={jd.aiMetadataJson} canUseAi={canAi} />
 
       <Card>
         <CardHeader>

@@ -12,7 +12,7 @@ import {
   type JobDescriptionListRow,
 } from "@/features/job-descriptions/job-description-table";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
-import { hasPermission } from "@/server/services/rbac";
+import { canManageJobDescriptions } from "@/server/services/rbac";
 
 type Db = {
   jobDescription: {
@@ -29,7 +29,7 @@ export default async function JobDescriptionsPage({
   if (!session) redirect("/login");
 
   const ctx = await getOrgContextOrThrow(session.user.id);
-  const canManage = hasPermission(ctx.role, "jobDescription:manage");
+  const canManage = canManageJobDescriptions(ctx.role);
 
   const { q } = (await searchParams) ?? {};
   const query = q?.trim();
@@ -110,7 +110,7 @@ export default async function JobDescriptionsPage({
           </CardContent>
         </Card>
       ) : (
-        <JobDescriptionTable rows={rows} />
+        <JobDescriptionTable rows={rows} canManage={canManage} />
       )}
     </div>
   );

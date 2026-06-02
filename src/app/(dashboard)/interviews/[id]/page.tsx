@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import type { Recommendation } from "@prisma/client";
 
 import { getServerAuthSession } from "@/auth";
 import { PageHeader } from "@/components/layout/page-header";
@@ -7,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
+import { RecommendationBadge } from "@/components/ui/recommendation-badge";
 import { prisma } from "@/lib/prisma";
 import { InterviewQuestionTable } from "@/features/interviews/interview-question-table";
 import { InterviewQuestionsManager } from "@/features/interviews/interview-questions-manager";
@@ -71,6 +73,16 @@ function formatDate(value: Date) {
   }).format(value);
 }
 
+function toRecommendation(value: string | null): Recommendation | null {
+  if (!value) return null;
+  if (value === "STRONG_HIRE") return "STRONG_HIRE";
+  if (value === "HIRE") return "HIRE";
+  if (value === "BORDERLINE") return "BORDERLINE";
+  if (value === "NO_HIRE") return "NO_HIRE";
+  if (value === "STRONG_NO_HIRE") return "STRONG_NO_HIRE";
+  return null;
+}
+
 async function completeInterviewAndReturnAction(formData: FormData) {
   "use server";
   const interviewId = String(formData.get("interviewId") ?? "");
@@ -95,6 +107,7 @@ export default async function InterviewDetailPage({
   const ctx = await getOrgContextOrThrow(session.user.id);
   const canConduct = hasPermission(ctx.role, "interview:conduct");
   const canManage = hasPermission(ctx.role, "interview:manage");
+  const canManageQuestions = hasPermission(ctx.role, "interview:questions:manage");
   const canViewReports = hasPermission(ctx.role, "reports:view");
   const canGenerateReports = hasPermission(ctx.role, "reports:generate");
   const aiAllowed =
@@ -290,18 +303,7 @@ export default async function InterviewDetailPage({
     | { recommendation?: unknown; overallScore?: unknown };
   const reportRecommendation = typeof reportScorecard?.recommendation === "string" ? reportScorecard.recommendation : null;
   const reportOverallScore = typeof reportScorecard?.overallScore === "number" ? reportScorecard.overallScore : null;
-  const scorecardRecommendationLabel =
-    scorecard?.recommendation === "STRONG_HIRE"
-      ? "Strong Hire"
-      : scorecard?.recommendation === "HIRE"
-        ? "Hire"
-        : scorecard?.recommendation === "BORDERLINE"
-          ? "Borderline"
-          : scorecard?.recommendation === "NO_HIRE"
-            ? "Reject"
-            : scorecard?.recommendation === "STRONG_NO_HIRE"
-              ? "Reject"
-            : "Not Submitted";
+  const scorecardRecommendation = typeof scorecard?.recommendation === "string" ? scorecard.recommendation : null;
 
   const scorecardJson = (scorecard?.scorecardJson ?? null) as
     | null
@@ -550,7 +552,9 @@ export default async function InterviewDetailPage({
                 </div>
                 <div className="sm:col-span-2">
                   <div className="text-muted-foreground">Recommendation</div>
-                  <div>{scorecardRecommendationLabel}</div>
+                  <div className="mt-1">
+                    <RecommendationBadge value={toRecommendation(scorecardRecommendation)} emptyLabel="Not Submitted" />
+                  </div>
                 </div>
               </div>
             </div>
@@ -614,7 +618,9 @@ export default async function InterviewDetailPage({
                 </div>
                 <div>
                   <div className="text-muted-foreground">Recommendation</div>
-                  <div>{reportRecommendation ?? "—"}</div>
+                  <div className="mt-1">
+                    <RecommendationBadge value={toRecommendation(reportRecommendation)} emptyLabel="—" />
+                  </div>
                 </div>
                 <div>
                   <div className="text-muted-foreground">Generated</div>
@@ -641,21 +647,18 @@ export default async function InterviewDetailPage({
               This interview is completed. Reopen the interview to modify questions or evaluations.
             </div>
           ) : null}
-          {!isCompleted && aiAllowed ? <InterviewAiQuestionsManager interviewId={interview.id} /> : null}
-          {!isCompleted && canManage ? (
-            <InterviewQuestionsManager interviewId={interview.id} topics={topics} questionBankOptions={questionBankOptions} />
-          ) : null}
 
           <div className="space-y-2">
             <div className="text-sm font-medium">Current questions</div>
             {interviewQuestions.length === 0 ? (
               <div className="rounded-lg border p-6 text-sm text-muted-foreground">
-                No questions yet. Generate a set or add a question manually.
+                No interview questions have been added. Add at least one question before starting the interview.
               </div>
             ) : (
               <InterviewQuestionTable
                 interviewId={interview.id}
                 readOnly={isCompleted}
+                canManage={!isCompleted && canManageQuestions}
                 rows={interviewQuestions.map((q) => ({
                   id: q.id,
                   order: q.order,
@@ -668,6 +671,11 @@ export default async function InterviewDetailPage({
               />
             )}
           </div>
+
+          {!isCompleted && canManageQuestions ? (
+            <InterviewQuestionsManager interviewId={interview.id} topics={topics} questionBankOptions={questionBankOptions} />
+          ) : null}
+          {!isCompleted && aiAllowed ? <InterviewAiQuestionsManager interviewId={interview.id} /> : null}
         </CardContent>
       </Card>
 
@@ -740,7 +748,9 @@ export default async function InterviewDetailPage({
                       </div>
                       <div>
                         <div className="text-muted-foreground">Recommendation</div>
-                        <div>{reportRecommendation ?? "—"}</div>
+                        <div className="mt-1">
+                          <RecommendationBadge value={toRecommendation(reportRecommendation)} emptyLabel="—" />
+                        </div>
                       </div>
                       <div>
                         <div className="text-muted-foreground">Score</div>

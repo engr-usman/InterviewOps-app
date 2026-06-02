@@ -30,7 +30,7 @@ type CandidateFormProps = {
     | { ok: true; data: { id: string } }
     | {
         ok: false;
-        error: string;
+        message: string;
       }
   >;
   submitLabel: string;
@@ -79,7 +79,7 @@ export function CandidateForm({
     setFormError(null);
     const result = await onSubmitAction(values);
     if (!result.ok) {
-      setFormError(result.error);
+      setFormError(result.message);
       return;
     }
 

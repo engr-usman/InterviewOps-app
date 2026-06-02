@@ -1,17 +1,18 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import type { Recommendation, ReportType } from "@prisma/client";
+import type { ReportType } from "@prisma/client";
 
 import { getServerAuthSession } from "@/auth";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { RecommendationBadge } from "@/components/ui/recommendation-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { prisma } from "@/lib/prisma";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
 import { hasFeature } from "@/server/services/feature-flags";
-import { hasPermission } from "@/server/services/rbac";
+import { canExportReports, hasPermission } from "@/server/services/rbac";
 
 export default async function ReportsPage() {
   const session = await getServerAuthSession();
@@ -31,6 +32,7 @@ export default async function ReportsPage() {
   }
 
   const exportsAllowed = await hasFeature(ctx.organization.id, "exports");
+  const canExport = canExportReports(ctx.role);
 
   const reports = await prisma.report.findMany({
     where: { organizationId: ctx.organization.id },
@@ -55,13 +57,6 @@ export default async function ReportsPage() {
 
   function formatDate(value: Date) {
     return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "2-digit" }).format(value);
-  }
-
-  function recBadgeVariant(rec: Recommendation | null): "secondary" | "muted" | "outline" {
-    if (!rec) return "muted";
-    if (rec === "STRONG_HIRE" || rec === "HIRE") return "secondary";
-    if (rec === "BORDERLINE") return "outline";
-    return "muted";
   }
 
   return (
@@ -105,7 +100,7 @@ export default async function ReportsPage() {
                         <Badge variant="muted">{String(r.type as ReportType)}</Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={recBadgeVariant(rec)}>{rec ? String(rec) : "—"}</Badge>
+                        <RecommendationBadge value={rec} />
                       </TableCell>
                       <TableCell className="text-right">{typeof score === "number" ? score.toFixed(2) : "—"}</TableCell>
                       <TableCell className="text-muted-foreground">{formatDate(r.createdAt)}</TableCell>
@@ -114,7 +109,7 @@ export default async function ReportsPage() {
                           <Button asChild size="sm" variant="outline">
                             <Link href={`/reports/${r.id}`}>View</Link>
                           </Button>
-                          {exportsAllowed ? (
+                          {exportsAllowed && canExport ? (
                             <>
                               <Button asChild size="sm" variant="outline">
                                 <Link href={`/api/reports/${r.id}/json`}>JSON</Link>
@@ -124,9 +119,17 @@ export default async function ReportsPage() {
                               </Button>
                             </>
                           ) : (
-                            <Button size="sm" variant="outline" disabled>
-                              Export
-                            </Button>
+                            <span
+                              title={
+                                exportsAllowed
+                                  ? "You do not have permission to export reports."
+                                  : "Exports are not available on your plan."
+                              }
+                            >
+                              <Button size="sm" variant="outline" disabled>
+                                Export
+                              </Button>
+                            </span>
                           )}
                         </div>
                       </TableCell>

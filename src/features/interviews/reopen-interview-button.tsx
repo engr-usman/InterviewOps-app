@@ -19,11 +19,13 @@ export function ReopenInterviewButton({ interviewId }: { interviewId: string }) 
     try {
       const result = await reopenInterviewAction(interviewId);
       if (!result.ok) {
-        setError(result.error);
+        setError(result.message);
         return;
       }
       setOpen(false);
       router.refresh();
+    } catch {
+      setError("You do not have permission to perform this action.");
     } finally {
       setBusy(false);
     }
@@ -61,4 +63,3 @@ export function ReopenInterviewButton({ interviewId }: { interviewId: string }) 
     </>
   );
 }
-

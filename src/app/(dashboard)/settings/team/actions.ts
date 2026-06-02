@@ -38,6 +38,22 @@ export async function updateMemberRoleAction(input: { memberId: string; role: Or
     });
     if (!member) return { ok: false, error: "Member not found." };
 
+    if (member.role === "OWNER" && ctx.role !== "OWNER") {
+      return { ok: false, error: "Only the owner can change the owner's role." };
+    }
+    if (input.role === "OWNER" && ctx.role !== "OWNER") {
+      return { ok: false, error: "Only the owner can assign the owner role." };
+    }
+    if (member.role === "OWNER" && input.role !== "OWNER") {
+      const ownersCount = await prisma.organizationMember.count({ where: { organizationId: ctx.organization.id, role: "OWNER" } });
+      if (ownersCount <= 1) {
+        return { ok: false, error: "Organization must have at least one owner." };
+      }
+    }
+    if (member.userId === session.user.id && input.role !== member.role) {
+      return { ok: false, error: "You cannot change your own role." };
+    }
+
     await db.organizationMember.update({
       where: { id: member.id },
       data: { role: input.role },
@@ -65,7 +81,11 @@ export async function removeMemberAction(input: { memberId: string }): Promise<A
     if (!member) return { ok: false, error: "Member not found." };
 
     if (member.userId === session.user.id) return { ok: false, error: "You cannot remove yourself." };
-    if (member.role === "OWNER") return { ok: false, error: "Remove or change role of owner is not supported yet." };
+    if (member.role === "OWNER" && ctx.role !== "OWNER") return { ok: false, error: "Only the owner can remove the owner." };
+    if (member.role === "OWNER") {
+      const ownersCount = await prisma.organizationMember.count({ where: { organizationId: ctx.organization.id, role: "OWNER" } });
+      if (ownersCount <= 1) return { ok: false, error: "Organization must have at least one owner." };
+    }
 
     await db.organizationMember.delete({ where: { id: member.id } });
     revalidatePath("/settings/team");
@@ -87,6 +107,9 @@ export async function createInviteTokenAction(
 
   try {
     const ctx = await requireOrgPermission(session.user.id, "team:manage");
+    if (input.role === "OWNER" && ctx.role !== "OWNER") {
+      return { ok: false, error: "Only the owner can invite a new owner." };
+    }
     const token = crypto.randomBytes(24).toString("hex");
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
 

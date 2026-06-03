@@ -6,6 +6,7 @@ import type { Prisma } from "@prisma/client";
 import { getServerAuthSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { requireOrgPermission } from "@/server/services/access";
+import { requirePermission } from "@/server/services/rbac";
 import {
   addQuestionSchema,
   generateQuestionsSchema,
@@ -16,7 +17,7 @@ type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
 type Db = {
   interview: {
-    findFirst: (args: unknown) => Promise<{ id: string; status: string } | null>;
+    findFirst: (args: unknown) => Promise<{ id: string; status: string; assignedInterviewerId: string | null } | null>;
   };
 };
 
@@ -62,6 +63,11 @@ export async function generateInterviewQuestionsAction(
     }
     return { ok: false, error: "Unauthorized." };
   }
+  try {
+    requirePermission(ctx.role, "questionBank:view");
+  } catch {
+    return { ok: false, error: permissionDeniedMessage };
+  }
   const parsed = generateQuestionsSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid inputs." };
 
@@ -71,9 +77,12 @@ export async function generateInterviewQuestionsAction(
     const db = prisma as unknown as Db;
     const interview = await db.interview.findFirst({
       where: { id: interviewId, organizationId: ctx.organization.id },
-      select: { id: true, status: true },
+      select: { id: true, status: true, assignedInterviewerId: true },
     });
     if (!interview) throw new Error("Interview not found.");
+    if (ctx.role === "INTERVIEWER" && interview.assignedInterviewerId !== session.user.id) {
+      return { ok: false, error: permissionDeniedMessage };
+    }
     if (interview.status === "COMPLETED") {
       throw new Error("Completed interviews cannot be modified. Reopen the interview first.");
     }
@@ -156,6 +165,11 @@ export async function addInterviewQuestionFromBankAction(
     }
     return { ok: false, error: "Unauthorized." };
   }
+  try {
+    requirePermission(ctx.role, "questionBank:view");
+  } catch {
+    return { ok: false, error: permissionDeniedMessage };
+  }
   const parsed = addQuestionSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid inputs." };
 
@@ -163,9 +177,12 @@ export async function addInterviewQuestionFromBankAction(
     const db = prisma as unknown as Db;
     const interview = await db.interview.findFirst({
       where: { id: interviewId, organizationId: ctx.organization.id },
-      select: { id: true, status: true },
+      select: { id: true, status: true, assignedInterviewerId: true },
     });
     if (!interview) throw new Error("Interview not found.");
+    if (ctx.role === "INTERVIEWER" && interview.assignedInterviewerId !== session.user.id) {
+      return { ok: false, error: permissionDeniedMessage };
+    }
     if (interview.status === "COMPLETED") {
       throw new Error("Completed interviews cannot be modified. Reopen the interview first.");
     }
@@ -235,9 +252,12 @@ export async function removeInterviewQuestionAction(
     const db = prisma as unknown as Db;
     const interview = await db.interview.findFirst({
       where: { id: interviewId, organizationId: ctx.organization.id },
-      select: { id: true, status: true },
+      select: { id: true, status: true, assignedInterviewerId: true },
     });
     if (!interview) throw new Error("Interview not found.");
+    if (ctx.role === "INTERVIEWER" && interview.assignedInterviewerId !== session.user.id) {
+      return { ok: false, error: permissionDeniedMessage };
+    }
     if (interview.status === "COMPLETED") {
       throw new Error("Completed interviews cannot be modified. Reopen the interview first.");
     }

@@ -131,6 +131,7 @@ model User {
   createdCandidates      Candidate[]      @relation("CandidateCreatedBy")
   createdJobDescriptions JobDescription[] @relation("JobDescriptionCreatedBy")
   createdInterviews      Interview[]      @relation("InterviewCreatedBy")
+  assignedInterviews     Interview[]      @relation("InterviewAssignedInterviewer")
   notifications          Notification[]
   auditLogs              AuditLog[]
   updatedSettings        AppSetting[]     @relation("AppSettingUpdatedBy")
@@ -405,6 +406,7 @@ model Interview {
   organizationId   String?
   candidateId      String
   jobDescriptionId String
+  assignedInterviewerId String?
   status           InterviewStatus @default(DRAFT)
 
   scheduledStartAt DateTime?
@@ -420,6 +422,7 @@ model Interview {
   updatedAt DateTime @updatedAt
 
   createdBy      User                 @relation("InterviewCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  assignedInterviewer User?           @relation("InterviewAssignedInterviewer", fields: [assignedInterviewerId], references: [id], onDelete: SetNull)
   organization   Organization?        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   candidate      Candidate            @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   jobDescription JobDescription       @relation(fields: [jobDescriptionId], references: [id], onDelete: Cascade)
@@ -432,6 +435,7 @@ model Interview {
   @@index([jobDescriptionId])
   @@index([createdById])
   @@index([organizationId])
+  @@index([assignedInterviewerId])
 }
 
 model QuestionBank {

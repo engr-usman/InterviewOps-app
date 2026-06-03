@@ -8,7 +8,8 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { acceptInviteCreateAccountAction } from "@/app/invite/actions";
@@ -94,7 +95,10 @@ export function InviteAcceptForm({
     <Card className="w-full max-w-2xl">
       <CardHeader>
         <CardTitle>Join {organizationName}</CardTitle>
-        <CardDescription>You have been invited as {invitedRole}.</CardDescription>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span>You have been invited as</span>
+          <Badge variant="outline">{invitedRole}</Badge>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="rounded-lg border bg-muted/20 p-4 text-sm">

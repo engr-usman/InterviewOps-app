@@ -15,6 +15,9 @@ type Db = {
   interview: { findFirst: (args: unknown) => Promise<unknown> };
   candidate: { findMany: (args: unknown) => Promise<Array<{ id: string; fullName: string }>> };
   jobDescription: { findMany: (args: unknown) => Promise<Array<{ id: string; title: string }>> };
+  organizationMember: {
+    findMany: (args: unknown) => Promise<Array<{ role: string; user: { id: string; name: string | null; email: string } }>>;
+  };
 };
 
 function toDatetimeLocalValue(date: Date | null) {
@@ -45,6 +48,7 @@ export default async function EditInterviewPage({ params }: { params: Promise<{ 
           id: true,
           candidateId: true,
           jobDescriptionId: true,
+          assignedInterviewerId: true,
           status: true,
           scheduledStartAt: true,
           scheduledEndAt: true,
@@ -56,6 +60,7 @@ export default async function EditInterviewPage({ params }: { params: Promise<{ 
               id: string;
               candidateId: string;
               jobDescriptionId: string;
+              assignedInterviewerId: string | null;
               status: InterviewStatus;
               scheduledStartAt: Date | null;
               scheduledEndAt: Date | null;
@@ -99,6 +104,13 @@ export default async function EditInterviewPage({ params }: { params: Promise<{ 
     select: { id: true, title: true },
   });
 
+  const interviewers = await db.organizationMember.findMany({
+    where: { organizationId: ctx.organization.id, role: { in: ["OWNER", "ADMIN", "INTERVIEWER"] } },
+    orderBy: [{ role: "asc" }, { user: { email: "asc" } }],
+    select: { role: true, user: { select: { id: true, name: true, email: true } } },
+    take: 200,
+  });
+
   return (
     <div className="space-y-6">
       <PageHeader title="Edit interview" description="Update interview details and scheduling." />
@@ -109,9 +121,11 @@ export default async function EditInterviewPage({ params }: { params: Promise<{ 
         submitLabel="Save changes"
         candidates={candidates}
         jobDescriptions={jobDescriptions}
+        interviewers={interviewers.map((m) => ({ userId: m.user.id, name: m.user.name ?? null, email: m.user.email, role: m.role }))}
         initialValues={{
           candidateId: interview.candidateId,
           jobDescriptionId: interview.jobDescriptionId,
+          assignedInterviewerId: interview.assignedInterviewerId ?? "",
           status: interview.status,
           scheduledStartAt: toDatetimeLocalValue(interview.scheduledStartAt),
           scheduledEndAt: toDatetimeLocalValue(interview.scheduledEndAt),

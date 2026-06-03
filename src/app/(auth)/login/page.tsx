@@ -3,8 +3,14 @@ import { redirect } from "next/navigation";
 import { getServerAuthSession } from "@/auth";
 import { LoginForm } from "@/components/auth/login-form";
 
-export default async function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ callbackUrl?: string }>;
+}) {
   const session = await getServerAuthSession();
-  if (session) redirect("/dashboard");
+  const params = (await searchParams) ?? {};
+  const callbackUrl = typeof params.callbackUrl === "string" && params.callbackUrl.trim() ? params.callbackUrl : "/dashboard";
+  if (session) redirect(callbackUrl);
   return <LoginForm />;
 }

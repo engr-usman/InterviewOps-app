@@ -56,7 +56,10 @@ export default async function InterviewQuestionDetailPage({
     where: {
       id: questionId,
       interviewId,
-      interview: { organizationId: ctx.organization.id },
+      interview: {
+        organizationId: ctx.organization.id,
+        ...(ctx.role === "INTERVIEWER" ? { assignedInterviewerId: session.user.id } : {}),
+      },
     },
     select: {
       id: true,

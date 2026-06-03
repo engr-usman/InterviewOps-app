@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 
 import { getServerAuthSession } from "@/auth";
+import { prisma } from "@/lib/prisma";
 import { generateAndUpsertInterviewReport } from "@/server/reports/report-service";
 import { requireOrgPermission } from "@/server/services/access";
 import { ReportType } from "@prisma/client";
@@ -32,6 +33,17 @@ export async function generateInterviewReportAndRedirectAction(formData: FormDat
   const force = forceRaw === "1";
 
   if (!interviewId) redirect(returnTo);
+
+  if (ctx.role === "INTERVIEWER") {
+    const allowed = await prisma.interview.findFirst({
+      where: { id: interviewId, organizationId: ctx.organization.id, assignedInterviewerId: session.user.id },
+      select: { id: true },
+    });
+    if (!allowed) {
+      const sep = returnTo.includes("?") ? "&" : "?";
+      redirect(`${returnTo}${sep}reportError=${encodeURIComponent("You do not have access to this interview.")}`);
+    }
+  }
 
   let reportId: string;
   try {

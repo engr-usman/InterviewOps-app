@@ -6,6 +6,8 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
+import { getOrgContextOrThrow } from "@/server/services/org-context";
+import { hasPermission } from "@/server/services/rbac";
 
 function formatDateTime(value: Date) {
   return new Intl.DateTimeFormat(undefined, {
@@ -26,6 +28,23 @@ function tagsToString(value: unknown): string {
 export default async function QuestionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await getServerAuthSession();
   if (!session) redirect("/login");
+
+  const ctx = await getOrgContextOrThrow(session.user.id);
+  const canView = hasPermission(ctx.role, "questionBank:view");
+  const canManage = hasPermission(ctx.role, "questionBank:manage");
+  if (!canView) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Question Bank" description="Question details from the shared library." />
+        <Card>
+          <CardHeader>
+            <CardTitle>Access denied</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">You do not have permission to view the Question Bank.</CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const { id } = await params;
 
@@ -57,9 +76,11 @@ export default async function QuestionDetailPage({ params }: { params: Promise<{
           <Button asChild variant="outline">
             <Link href="/question-bank">Back to Question Bank</Link>
           </Button>
-          <Button asChild>
-            <Link href={`/question-bank/${question.id}/edit`}>Edit Question</Link>
-          </Button>
+          {canManage ? (
+            <Button asChild>
+              <Link href={`/question-bank/${question.id}/edit`}>Edit Question</Link>
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -108,4 +129,3 @@ export default async function QuestionDetailPage({ params }: { params: Promise<{
     </div>
   );
 }
-

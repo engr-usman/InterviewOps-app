@@ -5,6 +5,7 @@ import { getServerAuthSession } from "@/auth";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { prisma } from "@/lib/prisma";
 import { generateInterviewReportJson } from "@/server/reports/report-service";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
 import { hasPermission } from "@/server/services/rbac";
@@ -24,6 +25,20 @@ export default async function InterviewReportPage({ params }: { params: Promise<
   }
 
   const { id } = await params;
+
+  if (ctx.role === "INTERVIEWER") {
+    const allowed = await prisma.interview.findFirst({
+      where: { id, organizationId: ctx.organization.id, assignedInterviewerId: session.user.id },
+      select: { id: true },
+    });
+    if (!allowed) {
+      return (
+        <Card>
+          <CardContent className="p-6 text-sm text-muted-foreground">You do not have access to this report.</CardContent>
+        </Card>
+      );
+    }
+  }
 
   let report: unknown = null;
   try {

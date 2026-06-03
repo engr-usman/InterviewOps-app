@@ -16,7 +16,23 @@ import { hasPermission } from "@/server/services/rbac";
 type Db = {
   candidate: { findMany: (args: unknown) => Promise<Array<{ id: string; fullName: string }>> };
   jobDescription: { findMany: (args: unknown) => Promise<Array<{ id: string; title: string; seniorityLevel: SeniorityLevel | null }>> };
-  interview: { findMany: (args: unknown) => Promise<InterviewListRow[]> };
+  interview: {
+    findMany: (
+      args: unknown,
+    ) => Promise<
+      Array<{
+        id: string;
+        status: InterviewStatus;
+        scheduledStartAt: Date | null;
+        scheduledEndAt: Date | null;
+        createdAt: Date;
+        assignedInterviewerId: string | null;
+        candidate: { id: string; fullName: string };
+        jobDescription: { id: string; title: string };
+        assignedInterviewer: { id: string; name: string | null; email: string; organizationMemberships: Array<{ role: string }> } | null;
+      }>
+    >;
+  };
 };
 
 function asEnum<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined {
@@ -41,6 +57,7 @@ export default async function InterviewsPage({
   const ctx = await getOrgContextOrThrow(session.user.id);
   const canAccess = hasPermission(ctx.role, "interview:view") || hasPermission(ctx.role, "interview:conduct") || hasPermission(ctx.role, "interview:manage");
   const canManage = hasPermission(ctx.role, "interview:manage");
+  const isInterviewer = ctx.role === "INTERVIEWER";
 
   if (!canAccess) {
     return (
@@ -66,14 +83,20 @@ export default async function InterviewsPage({
 
   const db = prisma as unknown as Db;
   const candidates: Array<{ id: string; fullName: string }> = await db.candidate.findMany({
-    where: { organizationId: ctx.organization.id },
+    where: {
+      organizationId: ctx.organization.id,
+      ...(isInterviewer ? { interviews: { some: { organizationId: ctx.organization.id, assignedInterviewerId: session.user.id } } } : {}),
+    },
     orderBy: { fullName: "asc" },
     select: { id: true, fullName: true },
   });
 
   const jobDescriptions: Array<{ id: string; title: string; seniorityLevel: SeniorityLevel | null }> =
     await db.jobDescription.findMany({
-      where: { organizationId: ctx.organization.id },
+      where: {
+        organizationId: ctx.organization.id,
+        ...(isInterviewer ? { interviews: { some: { organizationId: ctx.organization.id, assignedInterviewerId: session.user.id } } } : {}),
+      },
       orderBy: { title: "asc" },
       select: { id: true, title: true, seniorityLevel: true },
     });
@@ -82,9 +105,10 @@ export default async function InterviewsPage({
   let loadError: string | null = null;
 
   try {
-    rows = await db.interview.findMany({
+    const dbRows = await db.interview.findMany({
       where: {
         organizationId: ctx.organization.id,
+        ...(isInterviewer ? { assignedInterviewerId: session.user.id } : {}),
         ...(q
           ? {
               OR: [
@@ -114,10 +138,40 @@ export default async function InterviewsPage({
         scheduledStartAt: true,
         scheduledEndAt: true,
         createdAt: true,
+        assignedInterviewerId: true,
         candidate: { select: { id: true, fullName: true } },
         jobDescription: { select: { id: true, title: true } },
+        assignedInterviewer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            organizationMemberships: {
+              where: { organizationId: ctx.organization.id },
+              select: { role: true },
+              take: 1,
+            },
+          },
+        },
       },
     });
+    rows = dbRows.map((r) => ({
+      id: r.id,
+      status: r.status,
+      scheduledStartAt: r.scheduledStartAt,
+      scheduledEndAt: r.scheduledEndAt,
+      createdAt: r.createdAt,
+      candidate: r.candidate,
+      jobDescription: r.jobDescription,
+      assignedInterviewer: r.assignedInterviewer
+        ? {
+            id: r.assignedInterviewer.id,
+            name: r.assignedInterviewer.name ?? null,
+            email: r.assignedInterviewer.email,
+            role: r.assignedInterviewer.organizationMemberships[0]?.role ?? null,
+          }
+        : null,
+    }));
   } catch {
     loadError = "Failed to load interviews.";
   }

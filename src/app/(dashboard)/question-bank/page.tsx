@@ -5,7 +5,7 @@ import { DifficultyLevel, QuestionType, SeniorityLevel } from "@prisma/client";
 
 import { getServerAuthSession } from "@/auth";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { prisma } from "@/lib/prisma";
 import { QuestionTable, type QuestionListRow } from "@/features/question-bank/question-table";
@@ -37,8 +37,22 @@ export default async function QuestionBankPage({
   if (!session) redirect("/login");
 
   const ctx = await getOrgContextOrThrow(session.user.id);
+  const canView = hasPermission(ctx.role, "questionBank:view");
   const canManage = hasPermission(ctx.role, "questionBank:manage");
   const canCreate = canCreateQuestionBankQuestions(ctx.role);
+  if (!canView) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Question Bank" description="Maintain a reusable library of interview questions." />
+        <Card>
+          <CardHeader>
+            <CardTitle>Access denied</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">You do not have permission to view the Question Bank.</CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const params = (await searchParams) ?? {};
   const q = params.q?.trim();

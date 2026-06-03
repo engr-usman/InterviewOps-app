@@ -205,6 +205,7 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
         select: {
           id: true,
           status: true,
+          assignedInterviewerId: true,
           candidate: { select: { fullName: true } },
           jobDescription: { select: { title: true } },
           scorecard: { select: { recommendation: true, overallScore: true, summaryText: true, scorecardJson: true, metadataJson: true } },
@@ -214,6 +215,13 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ i
   });
 
   if (!report) notFound();
+  if (ctx.role === "INTERVIEWER" && report.interview.assignedInterviewerId !== session.user.id) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-sm text-muted-foreground">You do not have access to this report.</CardContent>
+      </Card>
+    );
+  }
 
   const payload = report.reportJson as unknown as InterviewReport;
   const details = payload.details ?? {

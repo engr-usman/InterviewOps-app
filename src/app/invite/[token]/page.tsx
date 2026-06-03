@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
 import { setActiveOrganization } from "@/server/services/org-context";
 import { InviteAcceptForm } from "@/features/orgs/invite-accept-form";
+import { InviteWrongAccountActions } from "@/features/orgs/invite-wrong-account-actions";
 
 function getInviteUsedAt(metadataJson: unknown): string | null {
   if (!metadataJson || typeof metadataJson !== "object") return null;
@@ -66,7 +67,8 @@ export default async function InviteAcceptPage({ params }: { params: Promise<{ t
     );
   }
 
-  const loginUrl = `/login?callbackUrl=${encodeURIComponent(`/invite/${token}`)}`;
+  const inviteUrl = `/invite/${token}`;
+  const loginUrl = `/login?callbackUrl=${encodeURIComponent(inviteUrl)}`;
 
   if (!session?.user?.id) {
     const existingUser = await prisma.user.findUnique({
@@ -107,9 +109,46 @@ export default async function InviteAcceptPage({ params }: { params: Promise<{ t
   }
 
   const currentUser = await prisma.user.findUnique({
-    where: { id: session.user.id },
+    where: { email: session.user.email ?? "" },
     select: { id: true, email: true },
   });
+  if (!currentUser) {
+    const existingUser = await prisma.user.findUnique({
+      where: { email: invite.email.trim().toLowerCase() },
+      select: { id: true },
+    });
+
+    if (existingUser) {
+      return (
+        <div className="flex min-h-dvh items-center justify-center p-4">
+          <Card className="w-full max-w-2xl">
+            <CardHeader>
+              <CardTitle>Sign in required</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <div>This email already has an account. Please sign in to accept the invite.</div>
+              <Button asChild>
+                <Link href={loginUrl}>Sign in and accept invite</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex min-h-dvh items-center justify-center p-4">
+        <InviteAcceptForm
+          token={token}
+          organizationName={invite.organization.name}
+          invitedEmail={invite.email}
+          invitedRole={invite.role}
+          expiresAt={invite.expiresAt.toLocaleString()}
+          loginUrl={loginUrl}
+        />
+      </div>
+    );
+  }
 
   const invitedEmail = invite.email.trim().toLowerCase();
   const currentEmail = currentUser?.email.trim().toLowerCase() ?? "";
@@ -122,10 +161,10 @@ export default async function InviteAcceptPage({ params }: { params: Promise<{ t
             <CardTitle>Wrong account</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <div>This invite was sent to {invite.email}. Please sign in with that email.</div>
-            <Button asChild>
-              <Link href={loginUrl}>Sign in with the invited email</Link>
-            </Button>
+            <div>
+              This invite was sent to {invite.email}, but you are currently signed in as {currentUser?.email ?? "a different account"}.
+            </div>
+            <InviteWrongAccountActions inviteUrl={inviteUrl} />
           </CardContent>
         </Card>
       </div>
@@ -142,9 +181,9 @@ export default async function InviteAcceptPage({ params }: { params: Promise<{ t
       if (getInviteUsedAt(inviteFresh.metadataJson)) throw new Error("INVITE_USED");
 
       await tx.organizationMember.upsert({
-        where: { organizationId_userId: { organizationId: inviteFresh.organizationId, userId: session.user.id } },
+        where: { organizationId_userId: { organizationId: inviteFresh.organizationId, userId: currentUser.id } },
         update: { role: inviteFresh.role },
-        create: { organizationId: inviteFresh.organizationId, userId: session.user.id, role: inviteFresh.role, joinedAt: new Date() },
+        create: { organizationId: inviteFresh.organizationId, userId: currentUser.id, role: inviteFresh.role, joinedAt: new Date() },
         select: { id: true },
       });
 
@@ -158,14 +197,14 @@ export default async function InviteAcceptPage({ params }: { params: Promise<{ t
           metadataJson: {
             ...existingMeta,
             usedAt: new Date().toISOString(),
-            usedById: session.user.id,
+            usedById: currentUser.id,
           },
         },
         select: { id: true },
       });
     });
 
-    await setActiveOrganization(session.user.id, invite.organizationId);
+    await setActiveOrganization(currentUser.id, invite.organizationId);
     redirect("/dashboard");
   } catch (e) {
     const code = e instanceof Error ? e.message : "";

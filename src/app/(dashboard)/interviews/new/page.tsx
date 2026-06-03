@@ -13,6 +13,9 @@ import { hasPermission } from "@/server/services/rbac";
 type Db = {
   candidate: { findMany: (args: unknown) => Promise<Array<{ id: string; fullName: string }>> };
   jobDescription: { findMany: (args: unknown) => Promise<Array<{ id: string; title: string }>> };
+  organizationMember: {
+    findMany: (args: unknown) => Promise<Array<{ role: string; user: { id: string; name: string | null; email: string } }>>;
+  };
 };
 
 export default async function NewInterviewPage() {
@@ -39,6 +42,15 @@ export default async function NewInterviewPage() {
       })
     : [];
 
+  const interviewers = canManage
+    ? await db.organizationMember.findMany({
+        where: { organizationId: ctx.organization.id, role: { in: ["OWNER", "ADMIN", "INTERVIEWER"] } },
+        orderBy: [{ role: "asc" }, { user: { email: "asc" } }],
+        select: { role: true, user: { select: { id: true, name: true, email: true } } },
+        take: 200,
+      })
+    : [];
+
   return (
     <div className="space-y-6">
       <PageHeader title="Create interview" description="Link a candidate to a job description." />
@@ -50,6 +62,7 @@ export default async function NewInterviewPage() {
           submitLabel="Create interview"
           candidates={candidates}
           jobDescriptions={jobDescriptions}
+          interviewers={interviewers.map((m) => ({ userId: m.user.id, name: m.user.name ?? null, email: m.user.email, role: m.role }))}
           initialValues={{
             status: InterviewStatus.DRAFT,
           }}

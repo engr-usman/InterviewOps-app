@@ -20,6 +20,19 @@ type Db = {
 
 const db = prisma as unknown as Db;
 
+async function requireCurrentDbUser() {
+  const session = await getServerAuthSession();
+  const email = session?.user?.email ?? null;
+  if (!email) throw new Error("Unauthorized.");
+
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true, email: true },
+  });
+  if (!user) throw new Error("Unauthorized.");
+  return { session, user };
+}
+
 function slugify(value: string): string {
   return value
     .trim()
@@ -38,8 +51,15 @@ async function ensureUniqueSlug(base: string): Promise<string> {
 }
 
 export async function createOrganizationAction(input: { name: string }): Promise<ActionResult<{ id: string }>> {
-  const session = await getServerAuthSession();
-  if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
+  let session: Awaited<ReturnType<typeof getServerAuthSession>> | null = null;
+  let userId: string | null = null;
+  try {
+    const resolved = await requireCurrentDbUser();
+    session = resolved.session;
+    userId = resolved.user.id;
+  } catch {
+    return { ok: false, error: "Unauthorized." };
+  }
 
   const name = input.name.trim();
   if (name.length < 2) return { ok: false, error: "Organization name is required." };
@@ -54,8 +74,8 @@ export async function createOrganizationAction(input: { name: string }): Promise
       data: {
         name,
         slug,
-        createdById: session.user.id,
-        members: { create: { userId: session.user.id, role: "OWNER" } },
+        createdById: userId,
+        members: { create: { userId, role: "OWNER" } },
         ...(planId
           ? {
               subscriptions: {
@@ -67,21 +87,35 @@ export async function createOrganizationAction(input: { name: string }): Promise
       select: { id: true },
     });
 
-    await setActiveOrganization(session.user.id, org.id);
+    await setActiveOrganization(userId, org.id);
     revalidatePath("/onboarding");
     revalidatePath("/dashboard");
     return { ok: true, data: { id: org.id } };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "Failed to create organization." };
+    if (process.env.NODE_ENV === "development") {
+      const safe = {
+        sessionEmail: session?.user?.email ?? null,
+        sessionUserId: (session?.user as { id?: unknown } | undefined)?.id ?? null,
+        dbUserId: userId,
+        message: error instanceof Error ? error.message : "Unknown error",
+      };
+      console.error("createOrganizationAction failed", safe);
+    }
+    return { ok: false, error: "Unable to create organization. Please try again or contact support." };
   }
 }
 
 export async function setActiveOrganizationAction(input: { organizationId: string }): Promise<ActionResult<{ ok: true }>> {
-  const session = await getServerAuthSession();
-  if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
+  let userId: string | null = null;
+  try {
+    const resolved = await requireCurrentDbUser();
+    userId = resolved.user.id;
+  } catch {
+    return { ok: false, error: "Unauthorized." };
+  }
 
   try {
-    await setActiveOrganization(session.user.id, input.organizationId);
+    await setActiveOrganization(userId, input.organizationId);
     revalidatePath("/onboarding");
     revalidatePath("/dashboard");
     revalidatePath("/settings");

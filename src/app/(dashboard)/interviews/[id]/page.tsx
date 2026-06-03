@@ -36,6 +36,13 @@ type InterviewDetailRow = {
   metadataJson: unknown;
   createdAt: Date;
   updatedAt: Date;
+  assignedInterviewerId: string | null;
+  assignedInterviewer: {
+    id: string;
+    name: string | null;
+    email: string;
+    organizationMemberships: Array<{ role: string }>;
+  } | null;
   candidate: {
     id: string;
     fullName: string;
@@ -108,8 +115,10 @@ export default async function InterviewDetailPage({
   const canConduct = hasPermission(ctx.role, "interview:conduct");
   const canManage = hasPermission(ctx.role, "interview:manage");
   const canManageQuestions = hasPermission(ctx.role, "interview:questions:manage");
+  const canViewQuestionBank = hasPermission(ctx.role, "questionBank:view");
   const canViewReports = hasPermission(ctx.role, "reports:view");
   const canGenerateReports = hasPermission(ctx.role, "reports:generate");
+  const isInterviewer = ctx.role === "INTERVIEWER";
   const aiAllowed =
     canManage && hasPermission(ctx.role, "ai:use") ? await hasFeature(ctx.organization.id, "ai") : false;
   const exportsAllowed =
@@ -135,6 +144,7 @@ export default async function InterviewDetailPage({
     select: {
       id: true,
       status: true,
+      assignedInterviewerId: true,
       scheduledStartAt: true,
       scheduledEndAt: true,
       startedAt: true,
@@ -144,6 +154,18 @@ export default async function InterviewDetailPage({
       metadataJson: true,
       createdAt: true,
       updatedAt: true,
+      assignedInterviewer: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          organizationMemberships: {
+            where: { organizationId: ctx.organization.id },
+            select: { role: true },
+            take: 1,
+          },
+        },
+      },
       candidate: {
         select: {
           id: true,
@@ -169,6 +191,20 @@ export default async function InterviewDetailPage({
   });
 
   if (!interview) notFound();
+
+  if (isInterviewer && interview.assignedInterviewerId !== session.user.id) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Interview" description="Interview details and placeholders for session artifacts." />
+        <Card>
+          <CardContent className="p-6 text-sm text-muted-foreground">You do not have access to this interview.</CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const assignedRole = interview.assignedInterviewer?.organizationMemberships[0]?.role ?? null;
+  const canActOnInterview = !isInterviewer || interview.assignedInterviewerId === session.user.id;
 
   const [interviewQuestions, evaluationScores, scorecard, questionsWithEval, latestReport] = await Promise.all([
     prisma.interviewQuestion.findMany({
@@ -214,7 +250,8 @@ export default async function InterviewDetailPage({
       : Promise.resolve(null),
   ]);
 
-  const topicsRows = canManage
+  const shouldLoadQuestionBank = canActOnInterview && canManageQuestions && canViewQuestionBank;
+  const topicsRows = shouldLoadQuestionBank
     ? await prisma.questionBank.findMany({
         distinct: ["topic"],
         select: { topic: true },
@@ -222,7 +259,7 @@ export default async function InterviewDetailPage({
       })
     : [];
 
-  const questionBankOptions = canManage
+  const questionBankOptions = shouldLoadQuestionBank
     ? await prisma.questionBank.findMany({
         orderBy: [{ topic: "asc" }, { createdAt: "desc" }],
         select: {
@@ -377,6 +414,21 @@ export default async function InterviewDetailPage({
                 </a>
               ) : (
                 "—"
+              )}
+            </div>
+          </div>
+          <div className="sm:col-span-2">
+            <div className="text-muted-foreground">Assigned interviewer</div>
+            <div>
+              {interview.assignedInterviewer ? (
+                <div className="space-y-1">
+                  <div>{(interview.assignedInterviewer.name ?? "—").trim()}</div>
+                  <div className="text-muted-foreground">
+                    {interview.assignedInterviewer.email} — {assignedRole ?? "—"}
+                  </div>
+                </div>
+              ) : (
+                "Unassigned"
               )}
             </div>
           </div>
@@ -672,7 +724,7 @@ export default async function InterviewDetailPage({
             )}
           </div>
 
-          {!isCompleted && canManageQuestions ? (
+          {!isCompleted && shouldLoadQuestionBank ? (
             <InterviewQuestionsManager interviewId={interview.id} topics={topics} questionBankOptions={questionBankOptions} />
           ) : null}
           {!isCompleted && aiAllowed ? <InterviewAiQuestionsManager interviewId={interview.id} /> : null}

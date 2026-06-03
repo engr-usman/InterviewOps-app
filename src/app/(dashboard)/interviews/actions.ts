@@ -16,6 +16,7 @@ type ActionResult<T> = { ok: true; data: T } | { ok: false; message: string };
 type Db = {
   candidate: { findFirst: (args: unknown) => Promise<{ id: string } | null> };
   jobDescription: { findFirst: (args: unknown) => Promise<{ id: string } | null> };
+  organizationMember: { findFirst: (args: unknown) => Promise<{ id: string } | null> };
   interview: {
     create: (args: unknown) => Promise<{ id: string }>;
     updateMany: (args: unknown) => Promise<{ count: number }>;
@@ -58,6 +59,18 @@ export async function createInterviewAction(
   });
   if (!jobDescription) return { ok: false, message: "Job description not found." };
 
+  if (values.assignedInterviewerId) {
+    const member = await db.organizationMember.findFirst({
+      where: {
+        organizationId: ctx.organization.id,
+        userId: values.assignedInterviewerId,
+        role: { in: ["OWNER", "ADMIN", "INTERVIEWER"] },
+      },
+      select: { id: true },
+    });
+    if (!member) return { ok: false, message: "Assigned interviewer not found." };
+  }
+
   try {
     const created = await db.interview.create({
       data: {
@@ -65,6 +78,7 @@ export async function createInterviewAction(
         organizationId: ctx.organization.id,
         candidateId: values.candidateId,
         jobDescriptionId: values.jobDescriptionId,
+        assignedInterviewerId: values.assignedInterviewerId ?? null,
         status: values.status,
         scheduledStartAt: values.scheduledStartAt,
         scheduledEndAt: values.scheduledEndAt,
@@ -113,12 +127,25 @@ export async function updateInterviewAction(
   });
   if (!jobDescription) return { ok: false, message: "Job description not found." };
 
+  if (values.assignedInterviewerId) {
+    const member = await db.organizationMember.findFirst({
+      where: {
+        organizationId: ctx.organization.id,
+        userId: values.assignedInterviewerId,
+        role: { in: ["OWNER", "ADMIN", "INTERVIEWER"] },
+      },
+      select: { id: true },
+    });
+    if (!member) return { ok: false, message: "Assigned interviewer not found." };
+  }
+
   try {
     const updated = await db.interview.updateMany({
       where: { id, organizationId: ctx.organization.id },
       data: {
         candidateId: values.candidateId,
         jobDescriptionId: values.jobDescriptionId,
+        assignedInterviewerId: values.assignedInterviewerId ?? null,
         status: values.status,
         scheduledStartAt: values.scheduledStartAt,
         scheduledEndAt: values.scheduledEndAt,

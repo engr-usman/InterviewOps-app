@@ -11,6 +11,7 @@ import { hasPermission } from "@/server/services/rbac";
 type InterviewSessionRow = {
   id: string;
   status: string;
+  assignedInterviewerId: string | null;
   candidate: { id: string; fullName: string; email: string | null; seniorityLevel: string | null };
   jobDescription: { id: string; title: string; seniorityLevel: string | null };
   questions: Array<{
@@ -57,6 +58,7 @@ export default async function InterviewSessionPage({
   const canView = hasPermission(ctx.role, "interview:view") || canConduct || hasPermission(ctx.role, "interview:manage");
   const canViewReports = hasPermission(ctx.role, "reports:view");
   const canGenerateReports = hasPermission(ctx.role, "reports:generate");
+  const isInterviewer = ctx.role === "INTERVIEWER";
 
   const { id } = await params;
 
@@ -65,6 +67,7 @@ export default async function InterviewSessionPage({
     select: {
       id: true,
       status: true,
+      assignedInterviewerId: true,
       candidate: {
         select: {
           id: true,
@@ -115,6 +118,14 @@ export default async function InterviewSessionPage({
   });
 
   if (!interview) notFound();
+
+  if (isInterviewer && interview.assignedInterviewerId !== session.user.id) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-sm text-muted-foreground">You do not have access to this interview.</CardContent>
+      </Card>
+    );
+  }
 
   const latestReport = (await (prisma as unknown as Db).report.findFirst({
     where: { interviewId: interview.id, organizationId: ctx.organization.id },

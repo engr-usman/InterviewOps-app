@@ -73,7 +73,6 @@ const rolePermissions: Record<OrgRole, Permission[]> = {
     "interview:conduct",
     "interview:questions:manage",
     "questionBank:view",
-    "questionBank:create",
     "analytics:view",
     "reports:view",
     "reports:generate",

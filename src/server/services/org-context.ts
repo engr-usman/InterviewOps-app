@@ -55,7 +55,7 @@ export async function getActiveOrganizationId(userId: string): Promise<string | 
   if (user?.activeOrganizationId) return user.activeOrganizationId;
 
   const orgs = await listUserOrganizations(userId);
-  if (orgs.length === 1) {
+  if (orgs.length >= 1) {
     await db.user.update({ where: { id: userId }, data: { activeOrganizationId: orgs[0].id } });
     return orgs[0].id;
   }

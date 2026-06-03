@@ -17,6 +17,7 @@ export type InterviewListRow = {
   createdAt: Date;
   candidate: { id: string; fullName: string };
   jobDescription: { id: string; title: string };
+  assignedInterviewer: { id: string; name: string | null; email: string; role: string | null } | null;
 };
 
 function formatDateTime(value: Date) {
@@ -63,6 +64,7 @@ export function InterviewTable({ rows, canManage }: { rows: InterviewListRow[]; 
             <TableRow>
               <TableHead>Candidate</TableHead>
               <TableHead>Job description</TableHead>
+              <TableHead>Interviewer</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Scheduled start</TableHead>
               <TableHead>Scheduled end</TableHead>
@@ -75,6 +77,18 @@ export function InterviewTable({ rows, canManage }: { rows: InterviewListRow[]; 
               <TableRow key={row.id}>
                 <TableCell className="font-medium">{row.candidate.fullName}</TableCell>
                 <TableCell className="text-muted-foreground">{row.jobDescription.title}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  {row.assignedInterviewer ? (
+                    <div className="leading-tight">
+                      <div>{(row.assignedInterviewer.name ?? "—").trim()}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {row.assignedInterviewer.email} — {row.assignedInterviewer.role ?? "—"}
+                      </div>
+                    </div>
+                  ) : (
+                    "Unassigned"
+                  )}
+                </TableCell>
                 <TableCell className="text-muted-foreground">{row.status}</TableCell>
                 <TableCell className="text-muted-foreground">
                   {row.scheduledStartAt ? formatDateTime(row.scheduledStartAt) : "—"}

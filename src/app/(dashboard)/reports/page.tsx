@@ -35,7 +35,10 @@ export default async function ReportsPage() {
   const canExport = canExportReports(ctx.role);
 
   const reports = await prisma.report.findMany({
-    where: { organizationId: ctx.organization.id },
+    where: {
+      organizationId: ctx.organization.id,
+      ...(ctx.role === "INTERVIEWER" ? { interview: { assignedInterviewerId: session.user.id } } : {}),
+    },
     orderBy: { updatedAt: "desc" },
     take: 100,
     select: {

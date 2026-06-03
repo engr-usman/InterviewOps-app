@@ -5,6 +5,7 @@ export const interviewFormInputSchema = z
   .object({
     candidateId: z.string().trim().min(1, "Candidate is required."),
     jobDescriptionId: z.string().trim().min(1, "Job description is required."),
+    assignedInterviewerId: z.union([z.string().trim(), z.literal("")]).optional(),
     status: z.nativeEnum(InterviewStatus),
     scheduledStartAt: z.union([z.string(), z.literal("")]).optional(),
     scheduledEndAt: z.union([z.string(), z.literal("")]).optional(),
@@ -46,6 +47,7 @@ export type InterviewFormInputValues = z.infer<typeof interviewFormInputSchema>;
 export type InterviewFormValues = {
   candidateId: string;
   jobDescriptionId: string;
+  assignedInterviewerId?: string | null;
   status: InterviewStatus;
   scheduledStartAt?: Date;
   scheduledEndAt?: Date;
@@ -60,6 +62,10 @@ export function normalizeInterviewFormValues(input: InterviewFormInputValues): I
     status: input.status,
   };
 
+  if (typeof input.assignedInterviewerId === "string") {
+    const trimmed = input.assignedInterviewerId.trim();
+    values.assignedInterviewerId = trimmed.length > 0 ? trimmed : null;
+  }
   if (input.scheduledStartAt && input.scheduledStartAt !== "") values.scheduledStartAt = new Date(input.scheduledStartAt);
   if (input.scheduledEndAt && input.scheduledEndAt !== "") values.scheduledEndAt = new Date(input.scheduledEndAt);
   if (input.meetingUrl && input.meetingUrl !== "") values.meetingUrl = input.meetingUrl;

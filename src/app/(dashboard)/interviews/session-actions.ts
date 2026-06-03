@@ -23,7 +23,12 @@ type TxDb = {
     findFirst: (args: unknown) => Promise<{ id: string } | null>;
   };
   interview: {
-    findFirst: (args: unknown) => Promise<{ id: string; questions: Array<{ evaluation: { score: number | null } | null }> } | null>;
+    findFirst: (args: unknown) => Promise<{
+      id: string;
+      status?: string;
+      assignedInterviewerId?: string | null;
+      questions: Array<{ evaluation: { score: number | null } | null }>;
+    } | null>;
   };
 };
 
@@ -75,6 +80,8 @@ function computeAutoRecommendation(overallScore: number | null): Recommendation 
   return Recommendation.NO_HIRE;
 }
 
+const permissionDeniedMessage = "You do not have permission to perform this action.";
+
 export async function saveInterviewQuestionEvaluationAction(
   interviewId: string,
   interviewQuestionId: string,
@@ -99,9 +106,12 @@ export async function saveInterviewQuestionEvaluationAction(
       const db = tx as unknown as TxDb;
       const interview = await tx.interview.findFirst({
         where: { id: interviewId, organizationId: ctx.organization.id },
-        select: { status: true },
+        select: { status: true, assignedInterviewerId: true },
       });
       if (!interview) throw new Error("Interview not found.");
+      if (ctx.role === "INTERVIEWER" && interview.assignedInterviewerId !== session.user.id) {
+        throw new Error(permissionDeniedMessage);
+      }
       if (interview.status === "COMPLETED") {
         const e = new Error("Interview is completed and cannot be modified.");
         (e as unknown as { status?: number }).status = 409;
@@ -182,12 +192,16 @@ export async function saveInterviewScorecardAction(
         select: {
           id: true,
           status: true,
+          assignedInterviewerId: true,
           questions: {
             select: { evaluation: { select: { score: true } } },
           },
         },
       });
       if (!interview) throw new Error("Interview not found.");
+      if (ctx.role === "INTERVIEWER" && interview.assignedInterviewerId !== session.user.id) {
+        throw new Error(permissionDeniedMessage);
+      }
       if ((interview as unknown as { status?: unknown }).status === "COMPLETED") {
         const e = new Error("Interview is completed and cannot be modified.");
         (e as unknown as { status?: number }).status = 409;
@@ -284,9 +298,12 @@ export async function addAdHocInterviewQuestionAction(
     const created = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const interview = await tx.interview.findFirst({
         where: { id: interviewId, organizationId: ctx.organization.id },
-        select: { id: true, status: true },
+        select: { id: true, status: true, assignedInterviewerId: true },
       });
       if (!interview) throw new Error("Interview not found.");
+      if (ctx.role === "INTERVIEWER" && interview.assignedInterviewerId !== session.user.id) {
+        throw new Error(permissionDeniedMessage);
+      }
       if (interview.status === "COMPLETED") {
         const e = new Error("Interview is completed and cannot be modified.");
         (e as unknown as { status?: number }).status = 409;
@@ -328,6 +345,15 @@ export async function completeInterviewAction(interviewId: string): Promise<Acti
   const ctx = await requireOrgPermission(session.user.id, "interview:conduct");
 
   try {
+    if (ctx.role === "INTERVIEWER") {
+      const interview = await prisma.interview.findFirst({
+        where: { id: interviewId, organizationId: ctx.organization.id },
+        select: { assignedInterviewerId: true },
+      });
+      if (!interview) return { ok: false, error: "Interview not found." };
+      if (interview.assignedInterviewerId !== session.user.id) return { ok: false, error: permissionDeniedMessage };
+    }
+
     const updatedWithEndedAt = await prisma.interview.updateMany({
       where: {
         id: interviewId,

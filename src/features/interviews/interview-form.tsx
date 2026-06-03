@@ -21,11 +21,13 @@ type InterviewFormMode = "create" | "edit";
 
 export type CandidateOption = { id: string; fullName: string };
 export type JobDescriptionOption = { id: string; title: string };
+export type InterviewerOption = { userId: string; name: string | null; email: string; role: string };
 
 type InterviewFormProps = {
   mode: InterviewFormMode;
   candidates: CandidateOption[];
   jobDescriptions: JobDescriptionOption[];
+  interviewers: InterviewerOption[];
   initialValues?: Partial<InterviewFormInputValues>;
   action: (values: InterviewFormInputValues) => Promise<
     | { ok: true; data: { id: string } }
@@ -43,6 +45,7 @@ export function InterviewForm({
   mode,
   candidates,
   jobDescriptions,
+  interviewers,
   initialValues,
   action,
   submitLabel,
@@ -57,6 +60,7 @@ export function InterviewForm({
     defaultValues: {
       candidateId: initialValues?.candidateId ?? "",
       jobDescriptionId: initialValues?.jobDescriptionId ?? "",
+      assignedInterviewerId: initialValues?.assignedInterviewerId ?? "",
       status: initialValues?.status ?? InterviewStatus.DRAFT,
       scheduledStartAt: initialValues?.scheduledStartAt ?? "",
       scheduledEndAt: initialValues?.scheduledEndAt ?? "",
@@ -151,6 +155,25 @@ export function InterviewForm({
                 ))}
               </select>
               {fieldError("status")}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="assignedInterviewerId">Assigned interviewer</Label>
+              <select
+                id="assignedInterviewerId"
+                className={cn(
+                  "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                )}
+                {...form.register("assignedInterviewerId")}
+              >
+                <option value="">Unassigned</option>
+                {interviewers.map((m) => (
+                  <option key={m.userId} value={m.userId}>
+                    {(m.name ?? "—").trim()} — {m.email} — {m.role}
+                  </option>
+                ))}
+              </select>
+              {fieldError("assignedInterviewerId")}
             </div>
 
             <div className="space-y-2">

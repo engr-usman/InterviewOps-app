@@ -20,6 +20,50 @@ type Db = {
 
 const db = prisma as unknown as Db;
 
+const defaultOrgQuestions = [
+  {
+    domain: "DevOps",
+    subDomain: "Kubernetes",
+    topic: "Kubernetes",
+    prompt: "Explain how Kubernetes scheduling works. What factors influence pod placement?",
+    difficulty: "MID_LEVEL" as const,
+    seniorityLevel: "MID" as const,
+  },
+  {
+    domain: "DevOps",
+    subDomain: "Terraform",
+    topic: "Terraform",
+    prompt: "How do you structure Terraform for multiple environments (dev/stage/prod) while keeping modules reusable?",
+    difficulty: "MID_LEVEL" as const,
+    seniorityLevel: "MID" as const,
+  },
+  {
+    domain: "SRE / Observability",
+    subDomain: "Incident Response",
+    topic: "Incident Response",
+    prompt: "Walk through your incident response process. How do you handle triage, communication, and postmortems?",
+    difficulty: "MID_LEVEL" as const,
+    seniorityLevel: "SENIOR" as const,
+  },
+  {
+    domain: "SRE / Observability",
+    subDomain: "Monitoring",
+    topic: "Observability",
+    prompt:
+      "How do you decide what to monitor? Explain the difference between metrics, logs, and traces and how you use them together.",
+    difficulty: "BEGINNER" as const,
+    seniorityLevel: "MID" as const,
+  },
+  {
+    domain: "Cloud/Infrastructure",
+    subDomain: "Networking",
+    topic: "Networking",
+    prompt: "A service is intermittently timing out. What steps do you take to diagnose network vs application issues?",
+    difficulty: "SENIOR" as const,
+    seniorityLevel: "SENIOR" as const,
+  },
+] as const;
+
 async function requireCurrentDbUser() {
   const session = await getServerAuthSession();
   const email = session?.user?.email ?? null;
@@ -70,21 +114,51 @@ export async function createOrganizationAction(input: { name: string }): Promise
     const freePlan = await db.subscriptionPlan.findUnique({ where: { code: "FREE" }, select: { id: true } });
     const planId = freePlan?.id ?? null;
 
-    const org = await db.organization.create({
-      data: {
-        name,
-        slug,
-        createdById: userId,
-        members: { create: { userId, role: "OWNER" } },
-        ...(planId
-          ? {
-              subscriptions: {
-                create: { planId, status: "ACTIVE" },
-              },
-            }
-          : {}),
-      },
-      select: { id: true },
+    const org = await prisma.$transaction(async (tx) => {
+      const org = await tx.organization.create({
+        data: {
+          name,
+          slug,
+          createdById: userId,
+          members: { create: { userId, role: "OWNER" } },
+          ...(planId
+            ? {
+                subscriptions: {
+                  create: { planId, status: "ACTIVE" },
+                },
+              }
+            : {}),
+        },
+        select: { id: true },
+      });
+
+      for (const q of defaultOrgQuestions) {
+        const exists = await tx.questionBank.findFirst({
+          where: { organizationId: org.id, prompt: q.prompt },
+          select: { id: true },
+        });
+        if (exists) continue;
+        await tx.questionBank.create({
+          data: {
+            organizationId: org.id,
+            createdById: userId,
+            visibility: "ORGANIZATION",
+            domain: q.domain,
+            subDomain: q.subDomain,
+            topic: q.topic,
+            prompt: q.prompt,
+            evaluationGuideText: null,
+            type: "FIXED",
+            difficulty: q.difficulty,
+            seniorityLevel: q.seniorityLevel,
+            sourceType: "MANUAL",
+            tagsJson: [],
+          },
+          select: { id: true },
+        });
+      }
+
+      return org;
     });
 
     await setActiveOrganization(userId, org.id);

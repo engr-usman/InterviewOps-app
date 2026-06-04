@@ -107,6 +107,11 @@ enum ReportType {
   FULL
 }
 
+enum QuestionVisibility {
+  PRIVATE
+  ORGANIZATION
+}
+
 model User {
   id                   String    @id @default(cuid())
   name                 String?
@@ -132,6 +137,7 @@ model User {
   createdJobDescriptions JobDescription[] @relation("JobDescriptionCreatedBy")
   createdInterviews      Interview[]      @relation("InterviewCreatedBy")
   assignedInterviews     Interview[]      @relation("InterviewAssignedInterviewer")
+  createdQuestionBankQuestions QuestionBank[] @relation("QuestionBankCreatedBy")
   notifications          Notification[]
   auditLogs              AuditLog[]
   updatedSettings        AppSetting[]     @relation("AppSettingUpdatedBy")
@@ -198,6 +204,7 @@ model Organization {
   jobDescriptions JobDescription[]
   interviews      Interview[]
   reports         Report[]
+  questionBankQuestions QuestionBank[]
   users           User[]
 
   @@index([slug])
@@ -440,8 +447,14 @@ model Interview {
 
 model QuestionBank {
   id             String          @id @default(cuid())
+  organizationId String
+  createdById    String
+  visibility     QuestionVisibility @default(ORGANIZATION)
+  domain         String?
+  subDomain      String?
   topic          String
   prompt         String
+  evaluationGuideText String?
   type           QuestionType    @default(FIXED)
   difficulty     DifficultyLevel @default(MID_LEVEL)
   seniorityLevel SeniorityLevel?
@@ -453,8 +466,15 @@ model QuestionBank {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy         User         @relation("QuestionBankCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   interviewQuestions InterviewQuestion[]
 
+  @@index([organizationId])
+  @@index([createdById])
+  @@index([visibility])
+  @@index([domain])
+  @@index([subDomain])
   @@index([topic])
   @@index([difficulty])
 }

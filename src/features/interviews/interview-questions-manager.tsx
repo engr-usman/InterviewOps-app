@@ -28,11 +28,15 @@ import {
 
 export type QuestionBankOption = {
   id: string;
+  domain: string | null;
+  subDomain: string | null;
   topic: string;
   prompt: string;
   type: string;
   difficulty: string;
   seniorityLevel: string | null;
+  visibility: "PRIVATE" | "ORGANIZATION";
+  createdById: string;
 };
 
 function preview(text: string, max = 90) {
@@ -45,10 +49,12 @@ export function InterviewQuestionsManager({
   interviewId,
   topics,
   questionBankOptions,
+  currentUserId,
 }: {
   interviewId: string;
   topics: string[];
   questionBankOptions: QuestionBankOption[];
+  currentUserId: string;
 }) {
   const router = useRouter();
   const [generateError, setGenerateError] = React.useState<string | null>(null);
@@ -61,6 +67,7 @@ export function InterviewQuestionsManager({
     resolver: zodResolver(generateQuestionsFormSchema),
     defaultValues: {
       count: 8,
+      sourceScope: "all",
       topic: "",
       difficulty: "",
       seniorityLevel: "",
@@ -75,14 +82,31 @@ export function InterviewQuestionsManager({
     },
   });
 
+  const sourceScope = (generateForm.watch("sourceScope") || "all") as "all" | "mine" | "shared";
+
+  const scopedOptions = React.useMemo(() => {
+    if (sourceScope === "mine") {
+      return questionBankOptions.filter((q) => q.visibility === "PRIVATE" && q.createdById === currentUserId);
+    }
+    if (sourceScope === "shared") {
+      return questionBankOptions.filter((q) => q.visibility === "ORGANIZATION");
+    }
+    return questionBankOptions;
+  }, [currentUserId, questionBankOptions, sourceScope]);
+
+  const scopedTopics = React.useMemo(() => {
+    const set = new Set(scopedOptions.map((q) => q.topic).filter(Boolean));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [scopedOptions]);
+
   const filteredOptions = React.useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return questionBankOptions;
-    return questionBankOptions.filter((opt) => {
+    if (!q) return scopedOptions;
+    return scopedOptions.filter((opt) => {
       const hay = `${opt.topic} ${opt.prompt} ${opt.type} ${opt.difficulty}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [questionBankOptions, search]);
+  }, [scopedOptions, search]);
 
   const onGenerate = generateForm.handleSubmit(async (values) => {
     setGenerateError(null);
@@ -129,6 +153,15 @@ export function InterviewQuestionsManager({
         <CardContent>
           <form onSubmit={onGenerate} className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="sourceScope">Question source</Label>
+                <select id="sourceScope" className={selectClassName} {...generateForm.register("sourceScope")}>
+                  <option value="all">All available</option>
+                  <option value="mine">My questions</option>
+                  <option value="shared">Shared questions</option>
+                </select>
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="count">Number of questions</Label>
                 <Input
@@ -147,7 +180,7 @@ export function InterviewQuestionsManager({
                 <Label htmlFor="topic">Topic</Label>
                 <select id="topic" className={selectClassName} {...generateForm.register("topic")}>
                   <option value="">All topics</option>
-                  {topics.map((t) => (
+                  {(scopedTopics.length > 0 ? scopedTopics : topics).map((t) => (
                     <option key={t} value={t}>
                       {t}
                     </option>
@@ -210,6 +243,22 @@ export function InterviewQuestionsManager({
         <CardContent>
           <form onSubmit={onAdd} className="space-y-4">
             <div className="space-y-2">
+              <Label htmlFor="sourceScopeManual">Question source</Label>
+              <select
+                id="sourceScopeManual"
+                className={selectClassName}
+                value={sourceScope}
+                onChange={(e) => {
+                  generateForm.setValue("sourceScope", e.target.value as "all" | "mine" | "shared");
+                }}
+              >
+                <option value="all">All available</option>
+                <option value="mine">My questions</option>
+                <option value="shared">Shared questions</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="search">Search</Label>
               <Input
                 id="search"
@@ -225,6 +274,8 @@ export function InterviewQuestionsManager({
                 <option value="">Select a question</option>
                 {filteredOptions.slice(0, 200).map((q) => (
                   <option key={q.id} value={q.id}>
+                    {(q.domain || q.subDomain) && q.domain ? `${q.domain} — ` : ""}
+                    {q.subDomain ? `${q.subDomain} — ` : ""}
                     {q.topic} — {preview(q.prompt)}
                   </option>
                 ))}

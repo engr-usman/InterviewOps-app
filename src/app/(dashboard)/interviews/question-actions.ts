@@ -72,6 +72,21 @@ export async function generateInterviewQuestionsAction(
   if (!parsed.success) return { ok: false, error: "Invalid inputs." };
 
   const values: GenerateQuestionsValues = parsed.data;
+  const questionBankVisibilityWhere =
+    ctx.role === "OWNER" || ctx.role === "ADMIN"
+      ? {}
+      : {
+          OR: [
+            { visibility: "ORGANIZATION" as const },
+            { visibility: "PRIVATE" as const, createdById: session.user.id },
+          ],
+        };
+  const questionBankScopeWhere =
+    values.sourceScope === "mine"
+      ? { visibility: "PRIVATE" as const, createdById: session.user.id }
+      : values.sourceScope === "shared"
+        ? { visibility: "ORGANIZATION" as const }
+        : questionBankVisibilityWhere;
 
   try {
     const db = prisma as unknown as Db;
@@ -104,6 +119,8 @@ export async function generateInterviewQuestionsAction(
 
       const candidateQuestions = await tx.questionBank.findMany({
         where: {
+          organizationId: ctx.organization.id,
+          ...questionBankScopeWhere,
           ...(values.topic ? { topic: values.topic } : {}),
           ...(values.difficulty ? { difficulty: values.difficulty } : {}),
           ...(values.seniorityLevel ? { seniorityLevel: values.seniorityLevel } : {}),
@@ -174,6 +191,16 @@ export async function addInterviewQuestionFromBankAction(
   if (!parsed.success) return { ok: false, error: "Invalid inputs." };
 
   try {
+    const questionBankVisibilityWhere =
+      ctx.role === "OWNER" || ctx.role === "ADMIN"
+        ? {}
+        : {
+            OR: [
+              { visibility: "ORGANIZATION" as const },
+              { visibility: "PRIVATE" as const, createdById: session.user.id },
+            ],
+          };
+
     const db = prisma as unknown as Db;
     const interview = await db.interview.findFirst({
       where: { id: interviewId, organizationId: ctx.organization.id },
@@ -188,8 +215,12 @@ export async function addInterviewQuestionFromBankAction(
     }
 
     const created = await prisma.$transaction(async (tx) => {
-      const qb = await tx.questionBank.findUnique({
-        where: { id: parsed.data.questionBankId },
+      const qb = await tx.questionBank.findFirst({
+        where: {
+          id: parsed.data.questionBankId,
+          organizationId: ctx.organization.id,
+          ...questionBankVisibilityWhere,
+        },
         select: { id: true, prompt: true, topic: true, type: true, difficulty: true, tagsJson: true },
       });
       if (!qb) throw new Error("Question not found.");

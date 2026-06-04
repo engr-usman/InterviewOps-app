@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createQuestionAction } from "@/app/(dashboard)/question-bank/actions";
 import { QuestionForm } from "@/features/question-bank/question-form";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
-import { canCreateQuestionBankQuestions } from "@/server/services/rbac";
+import { canCreateQuestionBankQuestions, hasPermission } from "@/server/services/rbac";
 
 export default async function NewQuestionPage() {
   const session = await getServerAuthSession();
@@ -14,6 +14,7 @@ export default async function NewQuestionPage() {
 
   const ctx = await getOrgContextOrThrow(session.user.id);
   const canCreate = canCreateQuestionBankQuestions(ctx.role);
+  const canShareOrganization = hasPermission(ctx.role, "questionBank:manage");
 
   return (
     <div className="space-y-6">
@@ -21,10 +22,11 @@ export default async function NewQuestionPage() {
       {canCreate ? (
         <QuestionForm
           mode="create"
+          canShareOrganization={canShareOrganization}
           title="Question details"
           description="Use this library to standardize and speed up interview preparation."
           submitLabel="Create question"
-          onSubmitAction={createQuestionAction}
+          action={createQuestionAction}
         />
       ) : (
         <Card>

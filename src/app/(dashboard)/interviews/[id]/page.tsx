@@ -251,8 +251,18 @@ export default async function InterviewDetailPage({
   ]);
 
   const shouldLoadQuestionBank = canActOnInterview && canManageQuestions && canViewQuestionBank;
+  const questionBankVisibilityWhere =
+    ctx.role === "OWNER" || ctx.role === "ADMIN"
+      ? {}
+      : {
+          OR: [
+            { visibility: "ORGANIZATION" as const },
+            { visibility: "PRIVATE" as const, createdById: session.user.id },
+          ],
+        };
   const topicsRows = shouldLoadQuestionBank
     ? await prisma.questionBank.findMany({
+        where: { organizationId: ctx.organization.id, ...questionBankVisibilityWhere },
         distinct: ["topic"],
         select: { topic: true },
         orderBy: { topic: "asc" },
@@ -261,14 +271,19 @@ export default async function InterviewDetailPage({
 
   const questionBankOptions = shouldLoadQuestionBank
     ? await prisma.questionBank.findMany({
+        where: { organizationId: ctx.organization.id, ...questionBankVisibilityWhere },
         orderBy: [{ topic: "asc" }, { createdAt: "desc" }],
         select: {
           id: true,
+          domain: true,
+          subDomain: true,
           topic: true,
           prompt: true,
           type: true,
           difficulty: true,
           seniorityLevel: true,
+          visibility: true,
+          createdById: true,
         },
         take: 1000,
       })
@@ -725,7 +740,12 @@ export default async function InterviewDetailPage({
           </div>
 
           {!isCompleted && shouldLoadQuestionBank ? (
-            <InterviewQuestionsManager interviewId={interview.id} topics={topics} questionBankOptions={questionBankOptions} />
+            <InterviewQuestionsManager
+              interviewId={interview.id}
+              topics={topics}
+              questionBankOptions={questionBankOptions}
+              currentUserId={session.user.id}
+            />
           ) : null}
           {!isCompleted && aiAllowed ? <InterviewAiQuestionsManager interviewId={interview.id} /> : null}
         </CardContent>

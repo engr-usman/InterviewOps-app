@@ -188,6 +188,7 @@ export async function generateAiInterviewQuestions(interviewId: string, organiza
   if (!interview) throw new Error("Interview not found.");
 
   const questionBankExamples = await prisma.questionBank.findMany({
+    where: { organizationId, visibility: "ORGANIZATION" },
     orderBy: { createdAt: "desc" },
     take: 12,
     select: { topic: true, prompt: true, difficulty: true },

@@ -1,7 +1,7 @@
 import { PageHeader } from "@/components/layout/page-header";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { DifficultyLevel, QuestionType, SeniorityLevel } from "@prisma/client";
+import { DifficultyLevel, QuestionType, SeniorityLevel, type Prisma } from "@prisma/client";
 
 import { getServerAuthSession } from "@/auth";
 import { Button } from "@/components/ui/button";
@@ -13,8 +13,10 @@ import { getOrgContextOrThrow } from "@/server/services/org-context";
 import { canCreateQuestionBankQuestions, hasPermission } from "@/server/services/rbac";
 import {
   difficultyOptions,
+  domainOptions,
   questionTypeOptions,
   seniorityOptions,
+  subDomainsByDomain,
 } from "@/features/question-bank/question-schema";
 
 function asEnum<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined {
@@ -22,11 +24,31 @@ function asEnum<T extends string>(value: string | undefined, allowed: readonly T
   return allowed.includes(value as T) ? (value as T) : undefined;
 }
 
+function buildQuestionBankScopeWhere({
+  scope,
+  canManage,
+  currentUserId,
+}: {
+  scope: string | undefined;
+  canManage: boolean;
+  currentUserId: string;
+}): Prisma.QuestionBankWhereInput {
+  if (scope === "mine") return { visibility: "PRIVATE", createdById: currentUserId };
+  if (scope === "shared") return { visibility: "ORGANIZATION" };
+  if (canManage) return {};
+  return {
+    OR: [{ visibility: "ORGANIZATION" }, { visibility: "PRIVATE", createdById: currentUserId }],
+  };
+}
+
 export default async function QuestionBankPage({
   searchParams,
 }: {
   searchParams?: Promise<{
     q?: string;
+    scope?: string;
+    domain?: string;
+    subDomain?: string;
     topic?: string;
     difficulty?: string;
     seniorityLevel?: string;
@@ -40,6 +62,7 @@ export default async function QuestionBankPage({
   const canView = hasPermission(ctx.role, "questionBank:view");
   const canManage = hasPermission(ctx.role, "questionBank:manage");
   const canCreate = canCreateQuestionBankQuestions(ctx.role);
+  const currentUserId = session.user.id;
   if (!canView) {
     return (
       <div className="space-y-6">
@@ -56,6 +79,9 @@ export default async function QuestionBankPage({
 
   const params = (await searchParams) ?? {};
   const q = params.q?.trim();
+  const scope = params.scope?.trim() ?? (ctx.role === "INTERVIEWER" ? "shared" : "");
+  const domain = params.domain?.trim();
+  const subDomain = params.subDomain?.trim();
   const topic = params.topic?.trim();
 
   const difficultyValues = Object.values(DifficultyLevel) as DifficultyLevel[];
@@ -67,6 +93,8 @@ export default async function QuestionBankPage({
   const type = asEnum(params.type, typeValues);
 
   let topics: Array<{ topic: string }> = [];
+  let domains: Array<{ domain: string | null }> = [];
+  let subDomains: Array<{ subDomain: string | null }> = [];
   let rows: QuestionListRow[] = [];
   let analytics: {
     mostUsed: Array<{ id: string; topic: string; prompt: string; uses: number; avgScore: number | null; evaluated: number }>;
@@ -78,18 +106,45 @@ export default async function QuestionBankPage({
   let loadError: string | null = null;
 
   try {
+    const baseWhere: Prisma.QuestionBankWhereInput = {
+      organizationId: ctx.organization.id,
+      ...buildQuestionBankScopeWhere({ scope, canManage, currentUserId }),
+    };
+
     topics = await prisma.questionBank.findMany({
+      where: baseWhere,
       distinct: ["topic"],
       orderBy: { topic: "asc" },
       select: { topic: true },
+    });
+
+    domains = await prisma.questionBank.findMany({
+      where: baseWhere,
+      distinct: ["domain"],
+      orderBy: { domain: "asc" },
+      select: { domain: true },
+    });
+
+    subDomains = await prisma.questionBank.findMany({
+      where: {
+        ...baseWhere,
+        ...(domain ? { domain } : {}),
+      },
+      distinct: ["subDomain"],
+      orderBy: { subDomain: "asc" },
+      select: { subDomain: true },
     });
   } catch {
     loadError = "Failed to load questions.";
   }
 
   try {
+    const baseScopeWhere = buildQuestionBankScopeWhere({ scope, canManage, currentUserId });
+
     rows = await prisma.questionBank.findMany({
       where: {
+        organizationId: ctx.organization.id,
+        ...baseScopeWhere,
         ...(q
           ? {
               OR: [
@@ -98,6 +153,8 @@ export default async function QuestionBankPage({
               ],
             }
           : {}),
+        ...(domain ? { domain } : {}),
+        ...(subDomain ? { subDomain } : {}),
         ...(topic ? { topic } : {}),
         ...(difficulty ? { difficulty } : {}),
         ...(seniorityLevel ? { seniorityLevel } : {}),
@@ -107,11 +164,16 @@ export default async function QuestionBankPage({
       take: 200,
       select: {
         id: true,
+        domain: true,
+        subDomain: true,
         topic: true,
         prompt: true,
         type: true,
         difficulty: true,
         seniorityLevel: true,
+        visibility: true,
+        createdById: true,
+        createdBy: { select: { name: true, email: true } },
         createdAt: true,
       },
     });
@@ -253,15 +315,13 @@ export default async function QuestionBankPage({
         </div>
       ) : null}
 
-      <div className="mb-6 flex flex-col gap-3">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <form className="flex w-full max-w-md items-center gap-2" action="/question-bank" method="get">
-            <Input name="q" placeholder="Search topic or prompt…" defaultValue={q ?? ""} />
+      <div className="mb-6 space-y-3">
+        <form className="flex flex-col gap-2 sm:flex-row sm:items-center" action="/question-bank" method="get">
+          <Input name="q" placeholder="Search topic or prompt…" defaultValue={q ?? ""} />
+          <div className="flex items-center gap-2">
             <Button type="submit" variant="outline">
               Search
             </Button>
-          </form>
-          <div className="flex items-center gap-2">
             <Button asChild variant="outline">
               <Link href="/question-bank">Clear</Link>
             </Button>
@@ -271,81 +331,149 @@ export default async function QuestionBankPage({
               </Button>
             ) : null}
           </div>
-        </div>
-
-        <form className="grid gap-3 rounded-lg border p-4 md:grid-cols-4" action="/question-bank" method="get">
-          <input type="hidden" name="q" value={q ?? ""} />
-
-          <div className="space-y-1">
-            <div className="text-sm font-medium">Topic</div>
-            <select
-              name="topic"
-              defaultValue={topic ?? ""}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              <option value="">All topics</option>
-              {topics.map((t) => (
-                <option key={t.topic} value={t.topic}>
-                  {t.topic}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="space-y-1">
-            <div className="text-sm font-medium">Difficulty</div>
-            <select
-              name="difficulty"
-              defaultValue={difficulty ?? ""}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              <option value="">All</option>
-              {difficultyOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="space-y-1">
-            <div className="text-sm font-medium">Seniority</div>
-            <select
-              name="seniorityLevel"
-              defaultValue={seniorityLevel ?? ""}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              <option value="">All</option>
-              {seniorityOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="space-y-1">
-            <div className="text-sm font-medium">Type</div>
-            <select
-              name="type"
-              defaultValue={type ?? ""}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              <option value="">All</option>
-              {questionTypeOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="md:col-span-4">
-            <Button type="submit" variant="outline">
-              Apply filters
-            </Button>
-          </div>
         </form>
+
+        <Card>
+          <CardContent className="p-4">
+            <form className="grid grid-cols-1 gap-3 md:grid-cols-4" action="/question-bank" method="get">
+              <input type="hidden" name="q" value={q ?? ""} />
+
+              <div className="space-y-1">
+                <div className="text-sm font-medium">Scope</div>
+                <select
+                  name="scope"
+                  defaultValue={scope ?? ""}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <option value="">All available</option>
+                  <option value="mine">My questions</option>
+                  <option value="shared">Shared questions</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-sm font-medium">Domain</div>
+                <select
+                  name="domain"
+                  defaultValue={domain ?? ""}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <option value="">All</option>
+                  {Array.from(
+                    new Set([
+                      ...domainOptions,
+                      ...domains
+                        .map((d) => d.domain)
+                        .filter((d): d is string => typeof d === "string" && d.trim() !== ""),
+                    ]),
+                  ).map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-sm font-medium">Sub-domain</div>
+                <select
+                  name="subDomain"
+                  defaultValue={subDomain ?? ""}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <option value="">All</option>
+                  {Array.from(
+                    new Set([
+                      ...(domain && domain in subDomainsByDomain
+                        ? subDomainsByDomain[domain as keyof typeof subDomainsByDomain]
+                        : []),
+                      ...subDomains
+                        .map((d) => d.subDomain)
+                        .filter((d): d is string => typeof d === "string" && d.trim() !== ""),
+                    ]),
+                  ).map((sd) => (
+                    <option key={sd} value={sd}>
+                      {sd}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-sm font-medium">Topic</div>
+                <select
+                  name="topic"
+                  defaultValue={topic ?? ""}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <option value="">All topics</option>
+                  {topics.map((t) => (
+                    <option key={t.topic} value={t.topic}>
+                      {t.topic}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-sm font-medium">Difficulty</div>
+                <select
+                  name="difficulty"
+                  defaultValue={difficulty ?? ""}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <option value="">All</option>
+                  {difficultyOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-sm font-medium">Seniority</div>
+                <select
+                  name="seniorityLevel"
+                  defaultValue={seniorityLevel ?? ""}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <option value="">All</option>
+                  {seniorityOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-sm font-medium">Type</div>
+                <select
+                  name="type"
+                  defaultValue={type ?? ""}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <option value="">All</option>
+                  {questionTypeOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-end justify-end gap-2 md:col-span-4">
+                <Button asChild variant="outline">
+                  <Link href="/question-bank">Clear</Link>
+                </Button>
+                <Button type="submit" variant="outline">
+                  Apply filters
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       </div>
 
       {loadError ? (
@@ -373,7 +501,7 @@ export default async function QuestionBankPage({
           </CardContent>
         </Card>
       ) : (
-        <QuestionTable rows={rows} canManage={canManage} />
+        <QuestionTable rows={rows} canManage={canManage} canManageOwn={canCreate} currentUserId={currentUserId} />
       )}
     </div>
   );

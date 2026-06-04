@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { getServerAuthSession } from "@/auth";
 import { PageHeader } from "@/components/layout/page-header";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
@@ -32,6 +33,7 @@ export default async function QuestionDetailPage({ params }: { params: Promise<{
   const ctx = await getOrgContextOrThrow(session.user.id);
   const canView = hasPermission(ctx.role, "questionBank:view");
   const canManage = hasPermission(ctx.role, "questionBank:manage");
+  const canCreate = hasPermission(ctx.role, "questionBank:create");
   if (!canView) {
     return (
       <div className="space-y-6">
@@ -48,12 +50,16 @@ export default async function QuestionDetailPage({ params }: { params: Promise<{
 
   const { id } = await params;
 
-  const question = await prisma.questionBank.findUnique({
-    where: { id },
+  const question = await prisma.questionBank.findFirst({
+    where: { id, organizationId: ctx.organization.id },
     select: {
       id: true,
+      domain: true,
+      subDomain: true,
       topic: true,
       prompt: true,
+      evaluationGuideText: true,
+      visibility: true,
       type: true,
       difficulty: true,
       seniorityLevel: true,
@@ -61,22 +67,49 @@ export default async function QuestionDetailPage({ params }: { params: Promise<{
       tagsJson: true,
       createdAt: true,
       updatedAt: true,
+      createdById: true,
+      createdBy: { select: { name: true, email: true } },
     },
   });
 
   if (!question) notFound();
 
+  const canViewThis =
+    question.visibility === "ORGANIZATION" || canManage || (question.visibility === "PRIVATE" && question.createdById === session.user.id);
+  if (!canViewThis) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Question Bank" description="Question details from the shared library." />
+        <Card>
+          <CardHeader>
+            <CardTitle>Access denied</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">You do not have access to this question.</CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const canEditThis = canManage || (canCreate && question.visibility === "PRIVATE" && question.createdById === session.user.id);
   const tags = tagsToString(question.tagsJson);
+  const isMine = question.createdById === session.user.id;
+  const scopeLabel =
+    question.visibility === "ORGANIZATION" ? "Shared Question" : isMine ? "My Question" : "Private Question";
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <PageHeader title={question.topic} description="Question details from the shared library." />
+        <div className="space-y-2">
+          <PageHeader title={question.topic} description="Question details from the shared library." />
+          <Badge variant="outline" className="w-fit">
+            {scopeLabel}
+          </Badge>
+        </div>
         <div className="flex items-center gap-2">
           <Button asChild variant="outline">
             <Link href="/question-bank">Back to Question Bank</Link>
           </Button>
-          {canManage ? (
+          {canEditThis ? (
             <Button asChild>
               <Link href={`/question-bank/${question.id}/edit`}>Edit Question</Link>
             </Button>
@@ -89,6 +122,14 @@ export default async function QuestionDetailPage({ params }: { params: Promise<{
           <CardTitle>Overview</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <div className="text-muted-foreground">Domain</div>
+            <div>{question.domain ?? "—"}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Sub-domain</div>
+            <div>{question.subDomain ?? "—"}</div>
+          </div>
           <div>
             <div className="text-muted-foreground">Type</div>
             <div>{question.type}</div>
@@ -104,6 +145,14 @@ export default async function QuestionDetailPage({ params }: { params: Promise<{
           <div>
             <div className="text-muted-foreground">Source type</div>
             <div>{question.sourceType}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Visibility</div>
+            <div>{question.visibility === "PRIVATE" ? "Private" : "Shared with organization"}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Created by</div>
+            <div>{question.createdBy.name ?? question.createdBy.email}</div>
           </div>
           <div>
             <div className="text-muted-foreground">Created</div>
@@ -126,6 +175,15 @@ export default async function QuestionDetailPage({ params }: { params: Promise<{
         </CardHeader>
         <CardContent className="whitespace-pre-wrap text-sm">{question.prompt}</CardContent>
       </Card>
+
+      {question.evaluationGuideText ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Expected answer / evaluation guide</CardTitle>
+          </CardHeader>
+          <CardContent className="whitespace-pre-wrap text-sm">{question.evaluationGuideText}</CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

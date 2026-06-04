@@ -5,6 +5,7 @@ const emptyToUndefined = <T>(value: T) => (value === "" ? undefined : value);
 
 export const generateQuestionsFormSchema = z.object({
   count: z.number().int().min(1).max(20),
+  sourceScope: z.union([z.enum(["all", "mine", "shared"]), z.literal("")]).optional(),
   topic: z.union([z.string(), z.literal("")]).optional(),
   difficulty: z.union([z.nativeEnum(DifficultyLevel), z.literal("")]).optional(),
   seniorityLevel: z.union([z.nativeEnum(SeniorityLevel), z.literal("")]).optional(),
@@ -15,6 +16,7 @@ export type GenerateQuestionsFormValues = z.infer<typeof generateQuestionsFormSc
 
 export const generateQuestionsSchema = z.object({
   count: z.number().int().min(1).max(20),
+  sourceScope: z.preprocess(emptyToUndefined, z.enum(["all", "mine", "shared"]).optional()),
   topic: z.preprocess(emptyToUndefined, z.string().trim().min(1).optional()),
   difficulty: z.preprocess(emptyToUndefined, z.nativeEnum(DifficultyLevel).optional()),
   seniorityLevel: z.preprocess(emptyToUndefined, z.nativeEnum(SeniorityLevel).optional()),

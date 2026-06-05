@@ -79,11 +79,15 @@ export function ActiveOrgSwitcher({
   organizations,
   planCode,
   canManageTeam,
+  canAccessOrganizationSettings,
+  canCreateOrganization,
 }: {
   activeOrganization: { id: string; name: string; slug: string; role: OrgRole };
   organizations: OrganizationOption[];
   planCode: PlanCode;
   canManageTeam: boolean;
+  canAccessOrganizationSettings: boolean;
+  canCreateOrganization: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -184,19 +188,32 @@ export function ActiveOrgSwitcher({
           </DropdownMenuItem>
         ) : null}
 
-        <DropdownMenuItem asChild disabled={pending}>
-          <Link href="/settings/organization" className="flex items-center gap-2">
-            <Settings className="h-4 w-4" />
-            Organization Settings
-          </Link>
-        </DropdownMenuItem>
+        {canCreateOrganization ? (
+          <DropdownMenuItem asChild disabled={pending}>
+            <Link href="/settings/organizations" className="flex items-center gap-2">
+              <Settings className="h-4 w-4" />
+              Organization Management
+            </Link>
+          </DropdownMenuItem>
+        ) : null}
 
-        <DropdownMenuItem asChild disabled={pending}>
-          <Link href="/onboarding?mode=create" className="flex items-center gap-2">
-            <Plus className="h-4 w-4" />
-            Create New Organization
-          </Link>
-        </DropdownMenuItem>
+        {canAccessOrganizationSettings ? (
+          <DropdownMenuItem asChild disabled={pending}>
+            <Link href="/settings/organization" className="flex items-center gap-2">
+              <Settings className="h-4 w-4" />
+              Organization Settings
+            </Link>
+          </DropdownMenuItem>
+        ) : null}
+
+        {canCreateOrganization ? (
+          <DropdownMenuItem asChild disabled={pending}>
+            <Link href="/onboarding?mode=create" className="flex items-center gap-2">
+              <Plus className="h-4 w-4" />
+              Create New Organization
+            </Link>
+          </DropdownMenuItem>
+        ) : null}
 
         <DropdownMenuSeparator />
 

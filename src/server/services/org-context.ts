@@ -97,3 +97,13 @@ export async function getOrgContextOrThrow(userId: string): Promise<OrgContext> 
   if (!ctx) throw new Error("Organization setup required.");
   return ctx;
 }
+
+export async function canCreateNewOrganization(userId: string): Promise<boolean> {
+  const organizationId = await getActiveOrganizationId(userId);
+  if (!organizationId) return false;
+  const membership = await prisma.organizationMember.findFirst({
+    where: { userId, organizationId },
+    select: { role: true },
+  });
+  return membership?.role === "OWNER";
+}

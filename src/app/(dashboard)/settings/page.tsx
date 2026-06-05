@@ -17,6 +17,7 @@ export default async function SettingsPage() {
   const ctx = await getOrgContextOrThrow(session.user.id);
   const canManageSettings = hasPermission(ctx.role, "settings:manage") || hasPermission(ctx.role, "org:manage");
   const canManageTeam = hasPermission(ctx.role, "team:manage");
+  const isOwner = ctx.role === "OWNER";
 
   if (!canManageSettings) {
     return (
@@ -70,6 +71,11 @@ export default async function SettingsPage() {
           <Button asChild variant="outline">
             <Link href="/settings/organization">Organization</Link>
           </Button>
+          {isOwner ? (
+            <Button asChild variant="outline">
+              <Link href="/settings/organizations">Organization Management</Link>
+            </Button>
+          ) : null}
           {canManageTeam ? (
             <Button asChild variant="outline">
               <Link href="/settings/team">Team Management</Link>

@@ -12,9 +12,11 @@ import { createOrganizationAction, setActiveOrganizationAction } from "@/app/(on
 export function OnboardingPanel({
   organizations,
   initialMode = "default",
+  canCreateOrganization,
 }: {
   organizations: Array<{ id: string; name: string; slug: string; role: string }>;
   initialMode?: "default" | "create";
+  canCreateOrganization: boolean;
 }) {
   const router = useRouter();
   const [orgName, setOrgName] = React.useState("");
@@ -68,7 +70,9 @@ export function OnboardingPanel({
       <Card>
         <CardHeader>
           <CardTitle>Organization</CardTitle>
-          <CardDescription>Select an organization or create a new one.</CardDescription>
+          <CardDescription>
+            {canCreateOrganization ? "Select an organization or create a new one." : "You can only access organizations you have been invited to."}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -97,22 +101,26 @@ export function OnboardingPanel({
             <div className="rounded-md border p-4 text-sm text-muted-foreground">No organizations yet.</div>
           )}
 
-          <div className="h-px bg-border" />
+          {canCreateOrganization ? (
+            <>
+              <div className="h-px bg-border" />
 
-          <div className="space-y-2">
-            <Label htmlFor="orgName">Create organization</Label>
-            <Input
-              ref={createInputRef}
-              id="orgName"
-              placeholder="e.g., Acme Inc"
-              value={orgName}
-              onChange={(e) => setOrgName(e.target.value)}
-            />
-          </div>
+              <div className="space-y-2">
+                <Label htmlFor="orgName">Create organization</Label>
+                <Input
+                  ref={createInputRef}
+                  id="orgName"
+                  placeholder="e.g., Acme Inc"
+                  value={orgName}
+                  onChange={(e) => setOrgName(e.target.value)}
+                />
+              </div>
 
-          <Button type="button" onClick={onCreate} disabled={loading}>
-            {loading ? "Working..." : "Create Organization"}
-          </Button>
+              <Button type="button" onClick={onCreate} disabled={loading}>
+                {loading ? "Working..." : "Create Organization"}
+              </Button>
+            </>
+          ) : null}
         </CardContent>
       </Card>
     </div>

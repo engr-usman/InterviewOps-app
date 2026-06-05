@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { getServerAuthSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { setActiveOrganization } from "@/server/services/org-context";
+import { canCreateNewOrganization, setActiveOrganization } from "@/server/services/org-context";
 
 type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -103,6 +103,11 @@ export async function createOrganizationAction(input: { name: string }): Promise
     userId = resolved.user.id;
   } catch {
     return { ok: false, error: "Unauthorized." };
+  }
+
+  const allowed = await canCreateNewOrganization(userId);
+  if (!allowed) {
+    return { ok: false, error: "Only organization owners can create organizations." };
   }
 
   const name = input.name.trim();

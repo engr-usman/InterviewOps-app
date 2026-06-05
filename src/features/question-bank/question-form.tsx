@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { DifficultyLevel, QuestionType, SourceType } from "@prisma/client";
 
@@ -70,8 +70,9 @@ export function QuestionForm({
     },
   });
 
-  const selectedDomain = (form.watch("domain") ?? "") as keyof typeof subDomainsByDomain | "";
+  const selectedDomain = (useWatch({ control: form.control, name: "domain" }) ?? "") as keyof typeof subDomainsByDomain | "";
   const availableSubDomains = selectedDomain && selectedDomain in subDomainsByDomain ? subDomainsByDomain[selectedDomain] : [];
+  const visibility = (useWatch({ control: form.control, name: "visibility" }) ?? "PRIVATE") as "PRIVATE" | "ORGANIZATION";
 
   const onSubmit = form.handleSubmit(async (values) => {
     setFormError(null);
@@ -261,7 +262,7 @@ export function QuestionForm({
                   ))}
                 </select>
                 <p className="text-sm text-muted-foreground">
-                  {form.watch("visibility") === "ORGANIZATION"
+                  {visibility === "ORGANIZATION"
                     ? "Shared questions can be used by other interviewers in this organization."
                     : "Private questions are only visible to you. You can use them in your assigned interviews."}
                 </p>

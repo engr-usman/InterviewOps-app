@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 import { Button } from "@/components/ui/button";
@@ -82,7 +82,10 @@ export function InterviewQuestionsManager({
     },
   });
 
-  const sourceScope = (generateForm.watch("sourceScope") || "all") as "all" | "mine" | "shared";
+  const sourceScope = (useWatch({ control: generateForm.control, name: "sourceScope" }) ?? "all") as
+    | "all"
+    | "mine"
+    | "shared";
 
   const scopedOptions = React.useMemo(() => {
     if (sourceScope === "mine") {

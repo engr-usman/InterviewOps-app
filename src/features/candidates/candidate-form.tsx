@@ -26,7 +26,7 @@ type CandidateFormProps = {
     resumeFileName: string;
     resumeUploadedAt: string | null;
   } | null;
-  onSubmitAction: (values: CandidateFormInputValues) => Promise<
+  action: (values: CandidateFormInputValues) => Promise<
     | { ok: true; data: { id: string } }
     | {
         ok: false;
@@ -42,7 +42,7 @@ export function CandidateForm({
   mode,
   initialValues,
   existingResume,
-  onSubmitAction,
+  action,
   submitLabel,
   title,
   description,
@@ -77,7 +77,7 @@ export function CandidateForm({
 
   const onSubmit = form.handleSubmit(async (values) => {
     setFormError(null);
-    const result = await onSubmitAction(values);
+    const result = await action(values);
     if (!result.ok) {
       setFormError(result.message);
       return;

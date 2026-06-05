@@ -227,8 +227,29 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
   const ctx = await getOrgContextOrThrow(session.user.id);
   const canManage = canManageCandidates(ctx.role);
   const canAi = canUseAi(ctx.role);
+  const isInterviewer = ctx.role === "INTERVIEWER";
 
   const { id } = await params;
+
+  if (isInterviewer) {
+    const allowed = await prisma.interview.findFirst({
+      where: { organizationId: ctx.organization.id, assignedInterviewerId: session.user.id, candidateId: id },
+      select: { id: true },
+    });
+    if (!allowed) {
+      return (
+        <div className="space-y-6">
+          <PageHeader title="Candidates" description="Manage candidates and resumes for your interviews." />
+          <Card>
+            <CardHeader>
+              <CardTitle>Access denied</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">You do not have access to this candidate.</CardContent>
+          </Card>
+        </div>
+      );
+    }
+  }
 
   const db = prisma as unknown as Db;
   const candidate = (await db.candidate.findFirst({
@@ -254,6 +275,7 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
       createdAt: true,
       updatedAt: true,
       interviews: {
+        ...(isInterviewer ? { where: { assignedInterviewerId: session.user.id } } : {}),
         orderBy: { createdAt: "desc" },
         take: 5,
         select: {

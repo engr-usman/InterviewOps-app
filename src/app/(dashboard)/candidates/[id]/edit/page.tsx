@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
 import { updateCandidateAction } from "@/app/(dashboard)/candidates/actions";
 import { CandidateForm } from "@/features/candidates/candidate-form";
+import type { CandidateFormInputValues } from "@/features/candidates/candidate-schema";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
 import { hasPermission } from "@/server/services/rbac";
 
@@ -59,6 +60,12 @@ export default async function EditCandidatePage({ params }: { params: Promise<{ 
   });
 
   if (!candidate) notFound();
+  const candidateId = candidate.id;
+
+  async function action(values: CandidateFormInputValues) {
+    "use server";
+    return updateCandidateAction(candidateId, values);
+  }
 
   return (
     <div className="space-y-6">
@@ -87,7 +94,7 @@ export default async function EditCandidatePage({ params }: { params: Promise<{ 
             linkedInUrl: candidate.linkedInUrl ?? "",
             githubUrl: candidate.githubUrl ?? "",
           }}
-          onSubmitAction={(values) => updateCandidateAction(candidate.id, values)}
+          action={action}
         />
       ) : (
         <Card>

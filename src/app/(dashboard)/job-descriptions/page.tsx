@@ -30,6 +30,7 @@ export default async function JobDescriptionsPage({
 
   const ctx = await getOrgContextOrThrow(session.user.id);
   const canManage = canManageJobDescriptions(ctx.role);
+  const isInterviewer = ctx.role === "INTERVIEWER";
 
   const { q } = (await searchParams) ?? {};
   const query = q?.trim();
@@ -42,6 +43,7 @@ export default async function JobDescriptionsPage({
     rows = await db.jobDescription.findMany({
       where: {
         organizationId: ctx.organization.id,
+        ...(isInterviewer ? { interviews: { some: { organizationId: ctx.organization.id, assignedInterviewerId: session.user.id } } } : {}),
         ...(query
           ? {
               OR: [

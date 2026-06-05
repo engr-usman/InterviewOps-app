@@ -34,15 +34,24 @@ export async function generateInterviewReportAndRedirectAction(formData: FormDat
 
   if (!interviewId) redirect(returnTo);
 
-  if (ctx.role === "INTERVIEWER") {
-    const allowed = await prisma.interview.findFirst({
-      where: { id: interviewId, organizationId: ctx.organization.id, assignedInterviewerId: session.user.id },
-      select: { id: true },
-    });
-    if (!allowed) {
-      const sep = returnTo.includes("?") ? "&" : "?";
-      redirect(`${returnTo}${sep}reportError=${encodeURIComponent("You do not have access to this interview.")}`);
-    }
+  const interview = await prisma.interview.findFirst({
+    where: {
+      id: interviewId,
+      organizationId: ctx.organization.id,
+      ...(ctx.role === "INTERVIEWER" ? { assignedInterviewerId: session.user.id } : {}),
+    },
+    select: { id: true, status: true },
+  });
+
+  if (!interview) {
+    const sep = returnTo.includes("?") ? "&" : "?";
+    const msg = ctx.role === "INTERVIEWER" ? "You do not have access to this interview." : "Interview not found.";
+    redirect(`${returnTo}${sep}reportError=${encodeURIComponent(msg)}`);
+  }
+
+  if (interview.status !== "COMPLETED") {
+    const sep = returnTo.includes("?") ? "&" : "?";
+    redirect(`${returnTo}${sep}reportError=${encodeURIComponent("Report can only be generated after the interview is completed.")}`);
   }
 
   let reportId: string;
@@ -57,7 +66,17 @@ export async function generateInterviewReportAndRedirectAction(formData: FormDat
     reportId = result.id;
   } catch (e) {
     if (isRedirectError(e)) throw e;
-    const msg = "Unable to regenerate report. Please try again.";
+    const op = force ? "regenerate" : "generate";
+    const errorMessage = e instanceof Error ? e.message : "unknown-error";
+    console.error(
+      `[report-generation-error] op=${op} interviewId=${interviewId} orgId=${ctx.organization.id} userId=${session.user.id} role=${ctx.role} error=${errorMessage}`,
+    );
+
+    const fallbackMsg = force ? "Unable to regenerate report. Please try again." : "Unable to generate report. Please try again.";
+    const msg =
+      e instanceof Error && e.message.trim().length > 0 && e.message.startsWith("Report can only be generated")
+        ? e.message
+        : fallbackMsg;
     const sep = returnTo.includes("?") ? "&" : "?";
     redirect(`${returnTo}${sep}reportError=${encodeURIComponent(msg)}`);
   }

@@ -25,6 +25,7 @@ export default async function CandidatesPage({
 
   const ctx = await getOrgContextOrThrow(session.user.id);
   const canManage = canManageCandidates(ctx.role);
+  const isInterviewer = ctx.role === "INTERVIEWER";
 
   const { q } = (await searchParams) ?? {};
   const query = q?.trim();
@@ -37,6 +38,7 @@ export default async function CandidatesPage({
     rows = await db.candidate.findMany({
       where: {
         organizationId: ctx.organization.id,
+        ...(isInterviewer ? { interviews: { some: { organizationId: ctx.organization.id, assignedInterviewerId: session.user.id } } } : {}),
         ...(query
           ? {
               OR: [

@@ -65,10 +65,30 @@ export default async function JobDescriptionDetailPage({
   const ctx = await getOrgContextOrThrow(session.user.id);
   const canManage = canManageJobDescriptions(ctx.role);
   const canAi = canUseAi(ctx.role);
+  const isInterviewer = ctx.role === "INTERVIEWER";
 
   const { id } = await params;
 
   const db = prisma as unknown as Db;
+  if (isInterviewer) {
+    const allowed = await prisma.interview.findFirst({
+      where: { organizationId: ctx.organization.id, assignedInterviewerId: session.user.id, jobDescriptionId: id },
+      select: { id: true },
+    });
+    if (!allowed) {
+      return (
+        <div className="space-y-6">
+          <PageHeader title="Job Descriptions" description="Create and manage job descriptions for interviews." />
+          <Card>
+            <CardHeader>
+              <CardTitle>Access denied</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">You do not have access to this job description.</CardContent>
+          </Card>
+        </div>
+      );
+    }
+  }
   const jd = await db.jobDescription.findFirst({
     where: {
       id,
@@ -118,7 +138,11 @@ export default async function JobDescriptionDetailPage({
     .map((r) => r.skill.name);
 
   const jdInterviews = await db.interview.findMany({
-    where: { organizationId: ctx.organization.id, jobDescriptionId: jd.id },
+    where: {
+      organizationId: ctx.organization.id,
+      jobDescriptionId: jd.id,
+      ...(isInterviewer ? { assignedInterviewerId: session.user.id } : {}),
+    },
     orderBy: { createdAt: "desc" },
     take: 50,
     select: {

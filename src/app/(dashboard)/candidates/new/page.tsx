@@ -24,7 +24,7 @@ export default async function NewCandidatePage() {
           title="Candidate details"
           description="Add candidate information and optionally upload a resume."
           submitLabel="Create candidate"
-          onSubmitAction={createCandidateAction}
+          action={createCandidateAction}
         />
       ) : (
         <Card>

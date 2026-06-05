@@ -7,7 +7,7 @@ type Db = {
     findFirst: (args: unknown) => Promise<InterviewReportRow | null>;
   };
   user: {
-    findFirst: (args: unknown) => Promise<{ id: string; fullName: string | null; email: string | null } | null>;
+    findFirst: (args: unknown) => Promise<{ id: string; name: string | null; email: string | null } | null>;
   };
   organizationMember: {
     findFirst: (args: unknown) => Promise<{ role: unknown } | null>;
@@ -354,14 +354,14 @@ export async function generateInterviewReportJson({
 
   const generatedByUser = await db.user.findFirst({
     where: { id: userId },
-    select: { id: true, fullName: true, email: true },
+    select: { id: true, name: true, email: true },
   });
   const generatedByMember = await db.organizationMember.findFirst({
     where: { organizationId, userId },
     select: { role: true },
   });
   const generatedByName =
-    (generatedByUser?.fullName && generatedByUser.fullName.trim().length > 0 ? generatedByUser.fullName.trim() : null) ??
+    (generatedByUser?.name && generatedByUser.name.trim().length > 0 ? generatedByUser.name.trim() : null) ??
     (generatedByUser?.email && generatedByUser.email.trim().length > 0 ? generatedByUser.email.trim() : null) ??
     "Unknown User";
   const generatedByRole = generatedByMember?.role ? String(generatedByMember.role) : "UNKNOWN";

@@ -16,11 +16,15 @@ export function DashboardShell({
   role: OrgRole;
 }) {
   return (
-    <div className="flex h-dvh">
-      <Sidebar role={role} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <DashboardHeader userEmail={userEmail} userId={userId} />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+    <div className="flex h-dvh print:block print:h-auto">
+      <div className="print:hidden">
+        <Sidebar role={role} />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col print:block">
+        <div className="print:hidden">
+          <DashboardHeader userEmail={userEmail} userId={userId} />
+        </div>
+        <main className="flex-1 overflow-y-auto p-6 print:overflow-visible">{children}</main>
       </div>
     </div>
   );

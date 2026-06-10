@@ -3,10 +3,10 @@ import { z } from "zod";
 
 export const candidateFormInputSchema = z.object({
   fullName: z.string().trim().min(1, "Full name is required."),
-  email: z.union([z.string().trim().email("Invalid email."), z.literal("")]).optional(),
-  phone: z.union([z.string().trim().max(50), z.literal("")]).optional(),
-  location: z.union([z.string().trim().max(120), z.literal("")]).optional(),
-  seniorityLevel: z.union([z.nativeEnum(SeniorityLevel), z.literal("")]).optional(),
+  email: z.string().trim().min(1, "Email is required.").email("Invalid email."),
+  phone: z.string().trim().min(1, "Phone is required.").max(50),
+  location: z.string().trim().min(1, "Location is required.").max(120),
+  seniorityLevel: z.nativeEnum(SeniorityLevel, { message: "Seniority level is required." }),
   linkedInUrl: z.union([z.string().trim().url("Invalid URL."), z.literal("")]).optional(),
   githubUrl: z.union([z.string().trim().url("Invalid URL."), z.literal("")]).optional(),
 });
@@ -15,10 +15,10 @@ export type CandidateFormInputValues = z.infer<typeof candidateFormInputSchema>;
 
 export type CandidateFormValues = {
   fullName: string;
-  email?: string;
-  phone?: string;
-  location?: string;
-  seniorityLevel?: SeniorityLevel;
+  email: string;
+  phone: string;
+  location: string;
+  seniorityLevel: SeniorityLevel;
   linkedInUrl?: string;
   githubUrl?: string;
 };
@@ -33,13 +33,12 @@ export function normalizeEmail(email?: string | null): string | null {
 export function normalizeCandidateFormValues(input: CandidateFormInputValues): CandidateFormValues {
   const normalized: CandidateFormValues = {
     fullName: input.fullName.trim(),
+    email: normalizeEmail(input.email) ?? "",
+    phone: input.phone.trim(),
+    location: input.location.trim(),
+    seniorityLevel: input.seniorityLevel,
   };
 
-  const normalizedEmail = normalizeEmail(input.email);
-  if (normalizedEmail) normalized.email = normalizedEmail;
-  if (input.phone && input.phone !== "") normalized.phone = input.phone;
-  if (input.location && input.location !== "") normalized.location = input.location;
-  if (input.seniorityLevel) normalized.seniorityLevel = input.seniorityLevel;
   if (input.linkedInUrl && input.linkedInUrl !== "") normalized.linkedInUrl = input.linkedInUrl;
   if (input.githubUrl && input.githubUrl !== "") normalized.githubUrl = input.githubUrl;
 

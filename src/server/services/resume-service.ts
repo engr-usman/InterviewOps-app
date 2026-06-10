@@ -96,14 +96,20 @@ export type ParsedResumeJson = {
   };
 };
 
+function normalizeUnicodePunctuation(input: string): string {
+  return input.replace(/[‐-―−]/g, "-").replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
+}
+
 function extractTextFallback(buffer: Buffer): string {
   const utf8 = buffer.toString("utf8");
-  const stripped = utf8.replace(/\0/g, " ").replace(/[^\x09\x0A\x0D\x20-\x7E]/g, " ");
+  const normalized = normalizeUnicodePunctuation(utf8);
+  const stripped = normalized.replace(/\0/g, " ").replace(/[^\x09\x0A\x0D\x20-\x7E]/g, " ");
   return stripped.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function sanitizeExtractedText(input: string): string {
-  const stripped = input.replace(/\0/g, " ").replace(/[^\x09\x0A\x0D\x20-\x7E]/g, " ");
+  const normalized = normalizeUnicodePunctuation(input);
+  const stripped = normalized.replace(/\0/g, " ").replace(/[^\x09\x0A\x0D\x20-\x7E]/g, " ");
   return stripped.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }
 
@@ -403,17 +409,18 @@ function extractYearsOfExperienceInfo(text: string): { years?: number; text?: st
   const normalized = text.replace(/\s+/g, " ").trim();
   const lower = normalized.toLowerCase();
 
-  const explicit =
-    lower.match(/\b(over|more\s+than)\s+(\d{1,2})\s+(years?|yrs?)\b/i) ??
-    lower.match(/\b(\d{1,2})\s*([+＋])\s*(years?|yrs?)\b/i) ??
-    lower.match(/\b(\d{1,2})\s+(years?|yrs?)\b/i);
+  const overMore = lower.match(/\b(?:over|more\s+than)\s+(\d{1,2})\s+(?:years?|yrs?)\b/i);
+  const plusForm = lower.match(/\b(\d{1,2})\s*[+＋]\s*(?:years?|yrs?)\b/i);
+  const plain = lower.match(/\b(\d{1,2})\s+(?:years?|yrs?)\b/i);
+
+  const explicit = overMore ?? plusForm ?? plain;
+  const isPlus = Boolean(overMore) || Boolean(plusForm);
 
   if (explicit) {
-    const num = Number(explicit[2] ?? explicit[1]);
+    const num = Number(explicit[1]);
     if (Number.isFinite(num) && num > 0 && num <= 60) {
-      const plus = Boolean(explicit[1]?.includes("over") || explicit[1]?.includes("more") || explicit[2] === "+" || explicit[2] === "＋");
-      const withContext = new RegExp(`\\b${num}\\s*([+＋])?\\s*(years?|yrs?)\\s+.*?\\bexperience\\b`, "i").test(normalized);
-      const textValue = plus || withContext ? `${num}+` : `${num}`;
+      const withContext = new RegExp(`\\b${num}\\s*[+＋]?\\s*(?:years?|yrs?)\\s+.*?\\bexperience\\b`, "i").test(normalized);
+      const textValue = isPlus || withContext ? `${num}+` : `${num}`;
       return { years: num, text: textValue };
     }
   }
@@ -461,44 +468,57 @@ function estimateYearsFromDateRanges(text: string): number | undefined {
 }
 
 function extractCertifications(text: string): string[] {
-  const lower = text.toLowerCase();
   const out: string[] = [];
 
-  if (/\bcka\b/i.test(text) || /\bcertified\s+kubernetes\s+administrator\b/i.test(lower)) {
+  if (/\bcka\b/i.test(text) || /\bcertified\s+kubernetes\s+administrator\b/i.test(text)) {
     out.push("Certified Kubernetes Administrator (CKA)");
   }
-  if (/\bckad\b/i.test(text) || /\bcertified\s+kubernetes\s+application\s+developer\b/i.test(lower)) {
+  if (/\bckad\b/i.test(text) || /\bcertified\s+kubernetes\s+application\s+developer\b/i.test(text)) {
     out.push("Certified Kubernetes Application Developer (CKAD)");
   }
 
-  if (/\baws\s+certified\s+cloud\s+practitioner\b/i.test(lower) || (/\bcloud\s+practitioner\b/i.test(lower) && /\baws\s+certified\b/i.test(lower))) {
-    out.push("AWS Certified Cloud Practitioner");
-  }
+  for (const line of extractLines(text)) {
+    if (!/\bcertifi(?:ed|cation)\b/i.test(line)) continue;
+    const lower = line.toLowerCase();
 
-  if (
-    /\baws\s+certified\s+developer\b/i.test(lower) &&
-    (/\bassociate\b/i.test(lower) || /\bassociate\s+level\b/i.test(lower) || /\bdeveloper\s+associate\b/i.test(lower))
-  ) {
-    out.push("AWS Certified Developer – Associate");
-  }
+    if (/\baws\s+certified\s+cloud\s+practitioner\b/i.test(lower) || (/\bcloud\s+practitioner\b/i.test(lower) && /\baws\s+certified\b/i.test(lower))) {
+      out.push("AWS Certified Cloud Practitioner");
+      continue;
+    }
 
-  const hasAwsCertified = /\baws\s+certified\b/i.test(lower);
-  const hasAws = /\baws\b/i.test(lower);
-  const hasSaa = /\bsolutions\s+architect\b/i.test(lower);
-  const hasProfessional = /\bprofessional\b/i.test(lower);
-  const hasAssociate = /\bassociate\b/i.test(lower);
-  if ((hasAwsCertified || hasAws) && hasSaa && hasProfessional) {
-    out.push("AWS Certified Solutions Architect – Professional");
-  } else if ((hasAwsCertified || hasAws) && hasSaa && hasAssociate) {
-    out.push("AWS Certified Solutions Architect – Associate");
-  } else if (/\baws\s+technical\s+professional\b/i.test(lower)) {
-    out.push("AWS Technical Professional");
-  }
+    if (/\baws\s+certified\s+developer\b/i.test(lower) && /\bassociate\b/i.test(lower)) {
+      out.push("AWS Certified Developer – Associate");
+      continue;
+    }
 
-  if (/\bgoogle\b/i.test(lower) && /\bprofessional\s+cloud\s+architect\b/i.test(lower)) {
-    out.push("Google Professional Cloud Architect");
-  } else if (/\bprofessional\s+cloud\s+architect\b/i.test(lower)) {
-    out.push("Google Professional Cloud Architect");
+    const hasAwsCertified = /\baws\s+certified\b/i.test(lower);
+    const hasSaa = /\bsolutions\s+architect\b/i.test(lower);
+    const hasProfessional = /\bprofessional\b/i.test(lower);
+    const hasAssociate = /\bassociate\b/i.test(lower);
+    if (hasAwsCertified && hasSaa && hasProfessional) {
+      out.push("AWS Certified Solutions Architect – Professional");
+      continue;
+    }
+    if (hasAwsCertified && hasSaa && hasAssociate) {
+      out.push("AWS Certified Solutions Architect – Associate");
+      continue;
+    }
+    if (/\baws\s+technical\s+professional\b/i.test(lower)) {
+      out.push("AWS Technical Professional");
+      continue;
+    }
+
+    if (/\bprofessional\s+cloud\s+architect\b/i.test(lower)) {
+      out.push("Google Professional Cloud Architect");
+      continue;
+    }
+
+    const cleaned = line
+      .replace(/\([^)]*\)\s*$/, "")
+      .replace(/\s{2,}/g, " ")
+      .trim()
+      .replace(/[.,;:]+$/, "");
+    if (cleaned.length >= 6 && cleaned.length <= 100) out.push(cleaned);
   }
 
   return uniqueStrings(out);

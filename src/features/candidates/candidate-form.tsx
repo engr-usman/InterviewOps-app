@@ -77,6 +77,12 @@ export function CandidateForm({
 
   const onSubmit = form.handleSubmit(async (values) => {
     setFormError(null);
+
+    if (!resumeFile && !existingResume?.resumeFileUrl) {
+      setFormError("Resume is required.");
+      return;
+    }
+
     const result = await action(values);
     if (!result.ok) {
       setFormError(result.message);
@@ -113,36 +119,47 @@ export function CandidateForm({
         <form onSubmit={onSubmit} className="space-y-6">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="fullName">Full name</Label>
-              <Input id="fullName" autoComplete="name" {...form.register("fullName")} />
+              <Label htmlFor="fullName">
+                Full name <span className="text-destructive">*</span>
+              </Label>
+              <Input id="fullName" autoComplete="name" required {...form.register("fullName")} />
               {fieldError("fullName")}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" autoComplete="email" {...form.register("email")} />
+              <Label htmlFor="email">
+                Email <span className="text-destructive">*</span>
+              </Label>
+              <Input id="email" type="email" autoComplete="email" required {...form.register("email")} />
               {fieldError("email")}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="phone">Phone</Label>
-              <Input id="phone" autoComplete="tel" {...form.register("phone")} />
+              <Label htmlFor="phone">
+                Phone <span className="text-destructive">*</span>
+              </Label>
+              <Input id="phone" autoComplete="tel" required {...form.register("phone")} />
               {fieldError("phone")}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="location">Location</Label>
-              <Input id="location" autoComplete="address-level2" {...form.register("location")} />
+              <Label htmlFor="location">
+                Location <span className="text-destructive">*</span>
+              </Label>
+              <Input id="location" autoComplete="address-level2" required {...form.register("location")} />
               {fieldError("location")}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="seniorityLevel">Seniority level</Label>
+              <Label htmlFor="seniorityLevel">
+                Seniority level <span className="text-destructive">*</span>
+              </Label>
               <select
                 id="seniorityLevel"
                 className={cn(
                   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
                 )}
+                required
                 {...form.register("seniorityLevel")}
               >
                 <option value="">—</option>
@@ -168,10 +185,13 @@ export function CandidateForm({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="resumeFile">Resume</Label>
+              <Label htmlFor="resumeFile">
+                Resume <span className="text-destructive">*</span>
+              </Label>
               <Input
                 id="resumeFile"
                 type="file"
+                required={!existingResume?.resumeFileUrl}
                 accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 onChange={(e) => setResumeFile(e.target.files?.[0] ?? null)}
               />

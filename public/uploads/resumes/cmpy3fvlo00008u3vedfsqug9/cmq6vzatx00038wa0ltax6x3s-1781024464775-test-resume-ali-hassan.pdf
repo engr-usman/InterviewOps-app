@@ -1,0 +1,92 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 2853 >>
+stream
+BT
+/F1 9 Tf
+40 760 Td
+12 TL
+(Ali Hassan) Tj T*
+(Senior DevOps / Cloud Engineer) Tj T*
+(Email: ali.hassan@testcandidate.com) Tj T*
+(Phone: +92-321-9876543) Tj T*
+(Location: Karachi, Pakistan) Tj T*
+(LinkedIn: https://linkedin.com/in/alihassan-devops) Tj T*
+(GitHub: https://github.com/alihassan-devops) Tj T*
+() Tj T*
+(PROFESSIONAL SUMMARY) Tj T*
+(DevOps Engineer with 7+ years of experience specializing in AWS, Kubernetes,) Tj T*
+(Terraform, and CI/CD pipelines. Proven track record of architecting scalable) Tj T*
+(cloud-native infrastructure and leading DevOps transformations.) Tj T*
+() Tj T*
+(SKILLS) Tj T*
+(Cloud Platforms: AWS, GCP, Azure) Tj T*
+(Containers & Orchestration: Docker, Kubernetes, Helm) Tj T*
+(Infrastructure as Code: Terraform, Ansible, CloudFormation, Pulumi) Tj T*
+(CI/CD: GitHub Actions, Jenkins, CircleCI) Tj T*
+(Monitoring & Logging: Prometheus, Grafana, CloudWatch, ELK Stack, Elasticsearch) Tj T*
+(Programming/Scripting: Python, TypeScript, Go) Tj T*
+(Databases: PostgreSQL, Redis, DynamoDB, MongoDB) Tj T*
+(Security / DevSecOps: Security Hardening, DevSecOps, IAM) Tj T*
+(SRE / Reliability: SRE, Incident Response, High Availability, Disaster Recovery,) Tj T*
+(  Observability, Cost Optimization, On-call, Postmortem) Tj T*
+(Leadership: Cloud Architecture, System Design, Microservices, AWS Well-Architected,) Tj T*
+(  Multi-account, Architecture, Mentoring, Leadership) Tj T*
+(AWS Services: EC2, EKS, ECS, S3, IAM, VPC, Route 53, Lambda, CloudWatch,) Tj T*
+(  DynamoDB, EventBridge, SQS, SNS, API Gateway) Tj T*
+() Tj T*
+(CERTIFICATIONS) Tj T*
+(AWS Certified Solutions Architect - Professional) Tj T*
+(Certified Kubernetes Administrator \(CKA\)) Tj T*
+(AWS Certified Cloud Practitioner) Tj T*
+() Tj T*
+(WORK EXPERIENCE) Tj T*
+(Senior DevOps Engineer | TechCorp Inc. | Jan 2020 - Present) Tj T*
+(  - Led cloud migration of 50+ microservices to AWS EKS) Tj T*
+(  - Architected multi-account AWS landing zone using AWS Organizations) Tj T*
+(  - Reduced deployment time by 70% via GitHub Actions CI/CD pipelines) Tj T*
+(  - Implemented Prometheus and Grafana observability stack) Tj T*
+(  - Mentored a team of 5 engineers and led architecture design sessions) Tj T*
+() Tj T*
+(DevOps Engineer | CloudSys Corp. | Mar 2017 - Dec 2019) Tj T*
+(  - Managed Kubernetes clusters across dev/stage/prod environments) Tj T*
+(  - Wrote Terraform modules for IaC provisioning on AWS) Tj T*
+(  - Set up CI/CD with Jenkins and CircleCI) Tj T*
+(  - Implemented disaster recovery with multi-AZ high availability design) Tj T*
+() Tj T*
+(EDUCATION) Tj T*
+(Bachelor of Science in Computer Science | University of Karachi | 2013 - 2017) Tj T*
+() Tj T*
+(COMMUNITY) Tj T*
+(AWS Community Builder) Tj T*
+(Speaker at DevOps Days Karachi 2022) Tj T*
+(Google Developer Groups \(GDG\) Karachi member) Tj T*
+(Linux Foundation training participant) Tj T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000003146 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+3241
+%%EOF

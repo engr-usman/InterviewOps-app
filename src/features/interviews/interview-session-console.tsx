@@ -325,6 +325,18 @@ export function InterviewSessionConsole({
       setError("Status is required before moving to another question.");
       return { ok: false };
     }
+    if (!values.strengthsNotes?.trim()) {
+      setError("Strengths is required before moving to another question.");
+      return { ok: false };
+    }
+    if (!values.weaknessesNotes?.trim()) {
+      setError("Weaknesses is required before moving to another question.");
+      return { ok: false };
+    }
+    if (!values.overallNotes?.trim()) {
+      setError("Overall notes/comments is required before moving to another question.");
+      return { ok: false };
+    }
 
     setError(null);
     const result = await saveInterviewQuestionEvaluationAction(interviewId, selectedQuestion.id, values);
@@ -883,7 +895,9 @@ export function InterviewSessionConsole({
                   <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
                     <div className="grid gap-4 sm:grid-cols-3">
                       <div className="space-y-2">
-                        <Label htmlFor="score">Score (1–10)</Label>
+                        <Label htmlFor="score">
+                          Score (1–10) <span className="text-destructive">*</span>
+                        </Label>
                         <Input
                           id="score"
                           type="number"
@@ -897,7 +911,9 @@ export function InterviewSessionConsole({
                         ) : null}
                       </div>
                       <div className="space-y-2 sm:col-span-2">
-                        <Label htmlFor="status">Status</Label>
+                        <Label htmlFor="status">
+                          Status <span className="text-destructive">*</span>
+                        </Label>
                         <select
                           id="status"
                           className={selectClassName}
@@ -913,7 +929,9 @@ export function InterviewSessionConsole({
 
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <Label htmlFor="strengthsNotes">Strengths</Label>
+                        <Label htmlFor="strengthsNotes">
+                          Strengths <span className="text-destructive">*</span>
+                        </Label>
                         <textarea
                           id="strengthsNotes"
                           className={cn(
@@ -923,9 +941,16 @@ export function InterviewSessionConsole({
                           readOnly={isReadOnly}
                           {...evaluationForm.register("strengthsNotes")}
                         />
+                        {evaluationForm.formState.errors.strengthsNotes?.message ? (
+                          <p className="text-sm text-destructive">
+                            {String(evaluationForm.formState.errors.strengthsNotes.message)}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="weaknessesNotes">Weaknesses</Label>
+                        <Label htmlFor="weaknessesNotes">
+                          Weaknesses <span className="text-destructive">*</span>
+                        </Label>
                         <textarea
                           id="weaknessesNotes"
                           className={cn(
@@ -935,11 +960,18 @@ export function InterviewSessionConsole({
                           readOnly={isReadOnly}
                           {...evaluationForm.register("weaknessesNotes")}
                         />
+                        {evaluationForm.formState.errors.weaknessesNotes?.message ? (
+                          <p className="text-sm text-destructive">
+                            {String(evaluationForm.formState.errors.weaknessesNotes.message)}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="overallNotes">Overall notes/comments</Label>
+                      <Label htmlFor="overallNotes">
+                        Overall notes/comments <span className="text-destructive">*</span>
+                      </Label>
                       <textarea
                         id="overallNotes"
                         className={cn(
@@ -949,6 +981,9 @@ export function InterviewSessionConsole({
                         readOnly={isReadOnly}
                         {...evaluationForm.register("overallNotes")}
                       />
+                      {evaluationForm.formState.errors.overallNotes?.message ? (
+                        <p className="text-sm text-destructive">{String(evaluationForm.formState.errors.overallNotes.message)}</p>
+                      ) : null}
                     </div>
 
                     {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -1137,7 +1172,9 @@ export function InterviewSessionConsole({
               <form onSubmit={isReadOnly ? (e) => e.preventDefault() : onSaveScorecard} className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="communicationScore">Communication</Label>
+                    <Label htmlFor="communicationScore">
+                      Communication <span className="text-destructive">*</span>
+                    </Label>
                     <Input
                       id="communicationScore"
                       type="number"
@@ -1146,10 +1183,15 @@ export function InterviewSessionConsole({
                       disabled={isReadOnly}
                       {...scorecardForm.register("communicationScore", { valueAsNumber: true })}
                     />
+                    {scorecardForm.formState.errors.communicationScore?.message ? (
+                      <p className="text-sm text-destructive">{String(scorecardForm.formState.errors.communicationScore.message)}</p>
+                    ) : null}
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="problemSolvingScore">Problem solving</Label>
+                    <Label htmlFor="problemSolvingScore">
+                      Problem solving <span className="text-destructive">*</span>
+                    </Label>
                     <Input
                       id="problemSolvingScore"
                       type="number"
@@ -1158,10 +1200,15 @@ export function InterviewSessionConsole({
                       disabled={isReadOnly}
                       {...scorecardForm.register("problemSolvingScore", { valueAsNumber: true })}
                     />
+                    {scorecardForm.formState.errors.problemSolvingScore?.message ? (
+                      <p className="text-sm text-destructive">{String(scorecardForm.formState.errors.problemSolvingScore.message)}</p>
+                    ) : null}
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="interviewerTechnicalAssessment">Interviewer Technical Assessment</Label>
+                    <Label htmlFor="interviewerTechnicalAssessment">
+                      Interviewer Technical Assessment <span className="text-destructive">*</span>
+                    </Label>
                     <Input
                       id="interviewerTechnicalAssessment"
                       type="number"
@@ -1170,6 +1217,11 @@ export function InterviewSessionConsole({
                       disabled={isReadOnly}
                       {...scorecardForm.register("interviewerTechnicalAssessment", { valueAsNumber: true })}
                     />
+                    {scorecardForm.formState.errors.interviewerTechnicalAssessment?.message ? (
+                      <p className="text-sm text-destructive">
+                        {String(scorecardForm.formState.errors.interviewerTechnicalAssessment.message)}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
 
@@ -1178,7 +1230,9 @@ export function InterviewSessionConsole({
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="interviewSummary">Interview summary</Label>
+                  <Label htmlFor="interviewSummary">
+                    Interview summary <span className="text-destructive">*</span>
+                  </Label>
                   <textarea
                     id="interviewSummary"
                     className={cn(
@@ -1188,11 +1242,16 @@ export function InterviewSessionConsole({
                     readOnly={isReadOnly}
                     {...scorecardForm.register("interviewSummary")}
                   />
+                  {scorecardForm.formState.errors.interviewSummary?.message ? (
+                    <p className="text-sm text-destructive">{String(scorecardForm.formState.errors.interviewSummary.message)}</p>
+                  ) : null}
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="strongAreas">Strong areas</Label>
+                    <Label htmlFor="strongAreas">
+                      Strong areas <span className="text-destructive">*</span>
+                    </Label>
                     <textarea
                       id="strongAreas"
                       className={cn(
@@ -1202,9 +1261,14 @@ export function InterviewSessionConsole({
                       readOnly={isReadOnly}
                       {...scorecardForm.register("strongAreas")}
                     />
+                    {scorecardForm.formState.errors.strongAreas?.message ? (
+                      <p className="text-sm text-destructive">{String(scorecardForm.formState.errors.strongAreas.message)}</p>
+                    ) : null}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="hiringConcerns">Hiring concerns</Label>
+                    <Label htmlFor="hiringConcerns">
+                      Hiring concerns <span className="text-destructive">*</span>
+                    </Label>
                     <textarea
                       id="hiringConcerns"
                       className={cn(
@@ -1214,11 +1278,16 @@ export function InterviewSessionConsole({
                       readOnly={isReadOnly}
                       {...scorecardForm.register("hiringConcerns")}
                     />
+                    {scorecardForm.formState.errors.hiringConcerns?.message ? (
+                      <p className="text-sm text-destructive">{String(scorecardForm.formState.errors.hiringConcerns.message)}</p>
+                    ) : null}
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="finalRecommendation">Final recommendation notes</Label>
+                  <Label htmlFor="finalRecommendation">
+                    Final recommendation notes <span className="text-destructive">*</span>
+                  </Label>
                   <textarea
                     id="finalRecommendation"
                     className={cn(
@@ -1228,19 +1297,10 @@ export function InterviewSessionConsole({
                     readOnly={isReadOnly}
                     {...scorecardForm.register("finalRecommendation")}
                   />
+                  {scorecardForm.formState.errors.finalRecommendation?.message ? (
+                    <p className="text-sm text-destructive">{String(scorecardForm.formState.errors.finalRecommendation.message)}</p>
+                  ) : null}
                 </div>
-
-                {scorecardForm.formState.errors.communicationScore?.message ? (
-                  <p className="text-sm text-destructive">{String(scorecardForm.formState.errors.communicationScore.message)}</p>
-                ) : null}
-                {scorecardForm.formState.errors.problemSolvingScore?.message ? (
-                  <p className="text-sm text-destructive">{String(scorecardForm.formState.errors.problemSolvingScore.message)}</p>
-                ) : null}
-                {scorecardForm.formState.errors.interviewerTechnicalAssessment?.message ? (
-                  <p className="text-sm text-destructive">
-                    {String(scorecardForm.formState.errors.interviewerTechnicalAssessment.message)}
-                  </p>
-                ) : null}
 
                 {!isReadOnly ? (
                   <div className="flex items-center gap-2">

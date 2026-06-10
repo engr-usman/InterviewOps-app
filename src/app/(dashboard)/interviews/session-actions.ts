@@ -169,7 +169,8 @@ export async function saveInterviewScorecardAction(
   if (!parsed.success) {
     return {
       ok: false,
-      error: "Communication, problem solving, and interviewer technical assessment are required (1–10).",
+      error:
+        "Communication, problem solving, and interviewer technical assessment (1–10), along with interview summary, strong areas, hiring concerns, and final recommendation notes, are required.",
     };
   }
 

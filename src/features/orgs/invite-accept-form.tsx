@@ -119,10 +119,12 @@ export function InviteAcceptForm({
         </div>
 
         <form onSubmit={onSubmit} className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4">
             <div className="space-y-2">
-              <Label htmlFor="fullName">Full name</Label>
-              <Input id="fullName" autoComplete="name" {...form.register("fullName")} />
+              <Label htmlFor="fullName">
+                Full name <span className="text-destructive">*</span>
+              </Label>
+              <Input id="fullName" autoComplete="name" required {...form.register("fullName")} />
               {form.formState.errors.fullName ? (
                 <p className="text-sm text-destructive">{form.formState.errors.fullName.message}</p>
               ) : null}
@@ -135,18 +137,28 @@ export function InviteAcceptForm({
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4">
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" autoComplete="new-password" {...form.register("password")} />
+              <Label htmlFor="password">
+                Password <span className="text-destructive">*</span>
+              </Label>
+              <Input id="password" type="password" autoComplete="new-password" required {...form.register("password")} />
               {form.formState.errors.password ? (
                 <p className="text-sm text-destructive">{form.formState.errors.password.message}</p>
               ) : null}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirm password</Label>
-              <Input id="confirmPassword" type="password" autoComplete="new-password" {...form.register("confirmPassword")} />
+              <Label htmlFor="confirmPassword">
+                Confirm password <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="confirmPassword"
+                type="password"
+                autoComplete="new-password"
+                required
+                {...form.register("confirmPassword")}
+              />
               {form.formState.errors.confirmPassword ? (
                 <p className="text-sm text-destructive">{form.formState.errors.confirmPassword.message}</p>
               ) : null}

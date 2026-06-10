@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SettingsNav } from "@/features/settings/settings-nav";
+import { getSettingsNavItems } from "@/features/settings/settings-nav-items";
 import { prisma } from "@/lib/prisma";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
 
@@ -19,10 +21,12 @@ export default async function OrganizationManagementPage() {
   if (!session) redirect("/login");
 
   const ctx = await getOrgContextOrThrow(session.user.id);
+  const navItems = getSettingsNavItems(ctx.role);
   if (ctx.role !== "OWNER") {
     return (
       <div className="space-y-6">
         <PageHeader title="Organization Management" description="Internal admin tools for organizations." />
+        <SettingsNav items={navItems} />
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">Access denied.</CardContent>
         </Card>
@@ -52,15 +56,11 @@ export default async function OrganizationManagementPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader title="Organization Management" description="Internal admin tools for organizations." />
-        <div className="flex flex-wrap items-center gap-2">
-          <Button asChild variant="outline">
-            <Link href="/settings">Back to Settings</Link>
-          </Button>
-          <Button asChild>
-            <Link href="/onboarding?mode=create">Create Organization</Link>
-          </Button>
-        </div>
+        <Button asChild>
+          <Link href="/onboarding?mode=create">Create Organization</Link>
+        </Button>
       </div>
+      <SettingsNav items={navItems} />
 
       <Card>
         <CardHeader>

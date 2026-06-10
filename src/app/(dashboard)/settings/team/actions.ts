@@ -18,6 +18,8 @@ type Db = {
   };
   inviteToken: {
     create: (args: unknown) => Promise<{ id: string }>;
+    findFirst: (args: unknown) => Promise<{ id: string; metadataJson: { usedAt?: string } | null } | null>;
+    delete: (args: unknown) => Promise<unknown>;
   };
 };
 
@@ -92,6 +94,28 @@ export async function removeMemberAction(input: { memberId: string }): Promise<A
     return { ok: true, data: { ok: true } };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Failed to remove member." };
+  }
+}
+
+export async function cancelInviteAction(input: { inviteId: string }): Promise<ActionResult<{ ok: true }>> {
+  const session = await getServerAuthSession();
+  if (!session?.user?.id) return { ok: false, error: "Unauthorized." };
+
+  try {
+    const ctx = await requireOrgPermission(session.user.id, "team:manage");
+
+    const invite = await db.inviteToken.findFirst({
+      where: { id: input.inviteId, organizationId: ctx.organization.id },
+      select: { id: true, metadataJson: true },
+    });
+    if (!invite) return { ok: false, error: "Invite not found." };
+    if (invite.metadataJson?.usedAt) return { ok: false, error: "Invite has already been accepted." };
+
+    await db.inviteToken.delete({ where: { id: invite.id } });
+    revalidatePath("/settings/team");
+    return { ok: true, data: { ok: true } };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Failed to cancel invite." };
   }
 }
 

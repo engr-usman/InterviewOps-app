@@ -2,11 +2,12 @@
 
 import * as React from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { createInviteTokenAction, removeMemberAction, updateMemberRoleAction } from "@/app/(dashboard)/settings/team/actions";
+import { cancelInviteAction, createInviteTokenAction, removeMemberAction, updateMemberRoleAction } from "@/app/(dashboard)/settings/team/actions";
 import { orgRoleValues, type OrgRole } from "@/server/services/rbac";
 
 export function TeamManagement({
@@ -14,11 +15,13 @@ export function TeamManagement({
   organizationSlug,
   planCode,
   members,
+  pendingInvites,
 }: {
   organizationName: string;
   organizationSlug: string;
   planCode: string;
   members: Array<{ id: string; userEmail: string; userName: string | null; role: OrgRole; joinedAt: string }>;
+  pendingInvites: Array<{ id: string; email: string; role: OrgRole; expiresAt: string; createdAt: string }>;
 }) {
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
@@ -31,6 +34,7 @@ export function TeamManagement({
     expiresAt: string;
   } | null>(null);
   const [loading, setLoading] = React.useState(false);
+  const [now] = React.useState(() => Date.now());
 
   const selectClassName = cn(
     "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background",
@@ -76,6 +80,24 @@ export function TeamManagement({
         return;
       }
       setNotice("Role updated.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onCancelInvite = async (inviteId: string) => {
+    const ok = window.confirm("Cancel this pending invite?");
+    if (!ok) return;
+    setError(null);
+    setNotice(null);
+    setLoading(true);
+    try {
+      const result = await cancelInviteAction({ inviteId });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setNotice("Invite cancelled.");
     } finally {
       setLoading(false);
     }
@@ -215,29 +237,55 @@ export function TeamManagement({
       <div className="rounded-lg border">
         <div className="border-b p-4 text-sm font-medium">Members</div>
         <div className="divide-y">
-          {members.length === 0 ? (
+          {members.length === 0 && pendingInvites.length === 0 ? (
             <div className="p-4 text-sm text-muted-foreground">No members.</div>
           ) : (
-            members.map((m) => (
-              <div key={m.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <div className="font-medium">{m.userName ?? m.userEmail}</div>
-                  <div className="text-sm text-muted-foreground">{m.userEmail}</div>
+            <>
+              {members.map((m) => (
+                <div key={m.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <div className="font-medium">{m.userName ?? m.userEmail}</div>
+                      <Badge variant="default">Registered</Badge>
+                    </div>
+                    <div className="text-sm text-muted-foreground">{m.userEmail}</div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select className={selectClassName} value={m.role} onChange={(e) => onChangeRole(m.id, e.target.value as OrgRole)} disabled={loading}>
+                      {orgRoleValues.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                    <Button type="button" variant="outline" onClick={() => onRemove(m.id)} disabled={loading}>
+                      Remove
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select className={selectClassName} value={m.role} onChange={(e) => onChangeRole(m.id, e.target.value as OrgRole)} disabled={loading}>
-                    {orgRoleValues.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                  <Button type="button" variant="outline" onClick={() => onRemove(m.id)} disabled={loading}>
-                    Remove
-                  </Button>
+              ))}
+              {pendingInvites.map((i) => {
+                const isExpired = new Date(i.expiresAt).getTime() < now;
+                return (
+                <div key={i.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <div className="font-medium">{i.email}</div>
+                      <Badge variant={isExpired ? "muted" : "secondary"}>{isExpired ? "Expired" : "Pending"}</Badge>
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      Invited as {i.role} · Expires {new Date(i.expiresAt).toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" variant="outline" onClick={() => onCancelInvite(i.id)} disabled={loading}>
+                      Cancel invite
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            ))
+                );
+              })}
+            </>
           )}
         </div>
       </div>

@@ -1,14 +1,14 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { getServerAuthSession } from "@/auth";
 import { PageHeader } from "@/components/layout/page-header";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { prisma } from "@/lib/prisma";
 import { OrganizationSettingsForm } from "@/features/orgs/organization-settings-form";
+import { SettingsNav } from "@/features/settings/settings-nav";
+import { getSettingsNavItems } from "@/features/settings/settings-nav-items";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
 import { hasPermission } from "@/server/services/rbac";
 
@@ -37,17 +37,13 @@ export default async function OrganizationSettingsPage() {
     hasPermission(ctx.role, "team:manage") ||
     hasPermission(ctx.role, "org:manage");
   const canEdit = ctx.role === "OWNER" || ctx.role === "ADMIN";
-  const canManageTeam = hasPermission(ctx.role, "team:manage");
+  const navItems = getSettingsNavItems(ctx.role);
 
   if (!canAccessSettings) {
     return (
       <div className="space-y-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <PageHeader title="Organization" description="Profile and subscription overview" />
-          <Button asChild variant="outline">
-            <Link href="/dashboard">Back to Dashboard</Link>
-          </Button>
-        </div>
+        <PageHeader title="Organization" description="Profile and subscription overview" />
+        <SettingsNav items={navItems} />
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">You do not have permission to manage settings.</CardContent>
         </Card>
@@ -67,19 +63,8 @@ export default async function OrganizationSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <PageHeader title="Organization" description="Profile and subscription overview" />
-        <div className="flex flex-wrap items-center gap-2">
-          {canManageTeam ? (
-            <Button asChild variant="outline">
-              <Link href="/settings/team">Team Management</Link>
-            </Button>
-          ) : null}
-          <Button asChild variant="outline">
-            <Link href="/settings">Back to Settings</Link>
-          </Button>
-        </div>
-      </div>
+      <PageHeader title="Organization" description="Profile and subscription overview" />
+      <SettingsNav items={navItems} />
 
       <Card>
         <CardHeader className="space-y-1">

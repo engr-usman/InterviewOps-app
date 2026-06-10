@@ -5,6 +5,8 @@ import { getServerAuthSession } from "@/auth";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { SettingsNav } from "@/features/settings/settings-nav";
+import { getSettingsNavItems } from "@/features/settings/settings-nav-items";
 import { prisma } from "@/lib/prisma";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
 import { OrganizationEditForm } from "@/app/(dashboard)/settings/organizations/[id]/edit/organization-edit-form";
@@ -21,6 +23,8 @@ export default async function OrganizationEditAdminPage({ params }: { params: Pr
       </Card>
     );
   }
+
+  const navItems = getSettingsNavItems(ctx.role);
 
   const { id } = await params;
   const org = await prisma.organization.findUnique({
@@ -47,6 +51,7 @@ export default async function OrganizationEditAdminPage({ params }: { params: Pr
           </Button>
         </div>
       </div>
+      <SettingsNav items={navItems} />
 
       <OrganizationEditForm
         organizationId={org.id}

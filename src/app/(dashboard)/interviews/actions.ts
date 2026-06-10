@@ -59,17 +59,15 @@ export async function createInterviewAction(
   });
   if (!jobDescription) return { ok: false, message: "Job description not found." };
 
-  if (values.assignedInterviewerId) {
-    const member = await db.organizationMember.findFirst({
-      where: {
-        organizationId: ctx.organization.id,
-        userId: values.assignedInterviewerId,
-        role: { in: ["OWNER", "ADMIN", "INTERVIEWER"] },
-      },
-      select: { id: true },
-    });
-    if (!member) return { ok: false, message: "Assigned interviewer not found." };
-  }
+  const member = await db.organizationMember.findFirst({
+    where: {
+      organizationId: ctx.organization.id,
+      userId: values.assignedInterviewerId,
+      role: { in: ["OWNER", "ADMIN", "INTERVIEWER"] },
+    },
+    select: { id: true },
+  });
+  if (!member) return { ok: false, message: "Assigned interviewer not found." };
 
   try {
     const created = await db.interview.create({
@@ -78,7 +76,7 @@ export async function createInterviewAction(
         organizationId: ctx.organization.id,
         candidateId: values.candidateId,
         jobDescriptionId: values.jobDescriptionId,
-        assignedInterviewerId: values.assignedInterviewerId ?? null,
+        assignedInterviewerId: values.assignedInterviewerId,
         status: values.status,
         scheduledStartAt: values.scheduledStartAt,
         scheduledEndAt: values.scheduledEndAt,
@@ -127,17 +125,15 @@ export async function updateInterviewAction(
   });
   if (!jobDescription) return { ok: false, message: "Job description not found." };
 
-  if (values.assignedInterviewerId) {
-    const member = await db.organizationMember.findFirst({
-      where: {
-        organizationId: ctx.organization.id,
-        userId: values.assignedInterviewerId,
-        role: { in: ["OWNER", "ADMIN", "INTERVIEWER"] },
-      },
-      select: { id: true },
-    });
-    if (!member) return { ok: false, message: "Assigned interviewer not found." };
-  }
+  const member = await db.organizationMember.findFirst({
+    where: {
+      organizationId: ctx.organization.id,
+      userId: values.assignedInterviewerId,
+      role: { in: ["OWNER", "ADMIN", "INTERVIEWER"] },
+    },
+    select: { id: true },
+  });
+  if (!member) return { ok: false, message: "Assigned interviewer not found." };
 
   try {
     const updated = await db.interview.updateMany({
@@ -145,7 +141,7 @@ export async function updateInterviewAction(
       data: {
         candidateId: values.candidateId,
         jobDescriptionId: values.jobDescriptionId,
-        assignedInterviewerId: values.assignedInterviewerId ?? null,
+        assignedInterviewerId: values.assignedInterviewerId,
         status: values.status,
         scheduledStartAt: values.scheduledStartAt,
         scheduledEndAt: values.scheduledEndAt,

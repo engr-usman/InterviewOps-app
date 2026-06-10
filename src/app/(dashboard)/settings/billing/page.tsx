@@ -1,11 +1,11 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { getServerAuthSession } from "@/auth";
 import { PageHeader } from "@/components/layout/page-header";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { SettingsNav } from "@/features/settings/settings-nav";
+import { getSettingsNavItems } from "@/features/settings/settings-nav-items";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
 import { hasPermission } from "@/server/services/rbac";
 
@@ -15,16 +15,13 @@ export default async function BillingSettingsPage() {
 
   const ctx = await getOrgContextOrThrow(session.user.id);
   const canManageBilling = hasPermission(ctx.role, "billing:manage") || hasPermission(ctx.role, "org:manage");
+  const navItems = getSettingsNavItems(ctx.role);
 
   if (!canManageBilling) {
     return (
       <div className="space-y-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <PageHeader title="Billing" description="Plans, usage, and invoices (placeholder)" />
-          <Button asChild variant="outline">
-            <Link href="/dashboard">Back to Dashboard</Link>
-          </Button>
-        </div>
+        <PageHeader title="Billing" description="Plans, usage, and invoices (placeholder)" />
+        <SettingsNav items={navItems} />
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">You do not have permission to manage billing.</CardContent>
         </Card>
@@ -34,12 +31,8 @@ export default async function BillingSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <PageHeader title="Billing" description="Plans, usage, and invoices (placeholder)" />
-        <Button asChild variant="outline">
-          <Link href="/settings">Back to Settings</Link>
-        </Button>
-      </div>
+      <PageHeader title="Billing" description="Plans, usage, and invoices (placeholder)" />
+      <SettingsNav items={navItems} />
 
       <Card>
         <CardHeader>

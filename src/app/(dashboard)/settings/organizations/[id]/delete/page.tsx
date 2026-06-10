@@ -5,6 +5,8 @@ import { getServerAuthSession } from "@/auth";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { SettingsNav } from "@/features/settings/settings-nav";
+import { getSettingsNavItems } from "@/features/settings/settings-nav-items";
 import { prisma } from "@/lib/prisma";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
 import { OrganizationDeleteForm } from "@/app/(dashboard)/settings/organizations/[id]/delete/organization-delete-form";
@@ -22,6 +24,8 @@ export default async function OrganizationDeleteAdminPage({ params }: { params: 
     );
   }
 
+  const navItems = getSettingsNavItems(ctx.role);
+
   const { id } = await params;
   const org = await prisma.organization.findUnique({
     where: { id },
@@ -37,6 +41,7 @@ export default async function OrganizationDeleteAdminPage({ params }: { params: 
           <Link href={`/settings/organizations/${org.id}`}>Back</Link>
         </Button>
       </div>
+      <SettingsNav items={navItems} />
 
       <OrganizationDeleteForm organizationId={org.id} organizationName={org.name} organizationSlug={org.slug} />
     </div>

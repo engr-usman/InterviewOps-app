@@ -87,6 +87,7 @@ export function InterviewForm({
 
   const noCandidates = candidates.length === 0;
   const noJobDescriptions = jobDescriptions.length === 0;
+  const noInterviewers = interviewers.length === 0;
 
   return (
     <Card>
@@ -98,13 +99,16 @@ export function InterviewForm({
         <form onSubmit={onSubmit} className="space-y-6">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="candidateId">Candidate</Label>
+              <Label htmlFor="candidateId">
+                Candidate <span className="text-destructive">*</span>
+              </Label>
               <select
                 id="candidateId"
                 className={cn(
                   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
                 )}
                 disabled={noCandidates}
+                required
                 {...form.register("candidateId")}
               >
                 <option value="">{noCandidates ? "No candidates available" : "Select candidate"}</option>
@@ -118,13 +122,16 @@ export function InterviewForm({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="jobDescriptionId">Job description</Label>
+              <Label htmlFor="jobDescriptionId">
+                Job description <span className="text-destructive">*</span>
+              </Label>
               <select
                 id="jobDescriptionId"
                 className={cn(
                   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
                 )}
                 disabled={noJobDescriptions}
+                required
                 {...form.register("jobDescriptionId")}
               >
                 <option value="">
@@ -140,12 +147,15 @@ export function InterviewForm({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="status">Status</Label>
+              <Label htmlFor="status">
+                Status <span className="text-destructive">*</span>
+              </Label>
               <select
                 id="status"
                 className={cn(
                   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                 )}
+                required
                 {...form.register("status")}
               >
                 {statusOptions.map((opt) => (
@@ -158,15 +168,19 @@ export function InterviewForm({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="assignedInterviewerId">Assigned interviewer</Label>
+              <Label htmlFor="assignedInterviewerId">
+                Assigned interviewer <span className="text-destructive">*</span>
+              </Label>
               <select
                 id="assignedInterviewerId"
                 className={cn(
-                  "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                  "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
                 )}
+                disabled={noInterviewers}
+                required
                 {...form.register("assignedInterviewerId")}
               >
-                <option value="">Unassigned</option>
+                <option value="">{noInterviewers ? "No interviewers available" : "Select interviewer"}</option>
                 {interviewers.map((m) => (
                   <option key={m.userId} value={m.userId}>
                     {(m.name ?? "—").trim()} — {m.email} — {m.role}
@@ -177,28 +191,36 @@ export function InterviewForm({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="scheduledStartAt">Scheduled start</Label>
+              <Label htmlFor="scheduledStartAt">
+                Scheduled start <span className="text-destructive">*</span>
+              </Label>
               <Input
                 id="scheduledStartAt"
                 type="datetime-local"
+                required
                 {...form.register("scheduledStartAt")}
               />
               {fieldError("scheduledStartAt")}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="scheduledEndAt">Scheduled end</Label>
+              <Label htmlFor="scheduledEndAt">
+                Scheduled end <span className="text-destructive">*</span>
+              </Label>
               <Input
                 id="scheduledEndAt"
                 type="datetime-local"
+                required
                 {...form.register("scheduledEndAt")}
               />
               {fieldError("scheduledEndAt")}
             </div>
 
             <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="meetingUrl">Meeting URL</Label>
-              <Input id="meetingUrl" type="url" placeholder="https://…" {...form.register("meetingUrl")} />
+              <Label htmlFor="meetingUrl">
+                Meeting URL <span className="text-destructive">*</span>
+              </Label>
+              <Input id="meetingUrl" type="url" placeholder="https://…" required {...form.register("meetingUrl")} />
               {fieldError("meetingUrl")}
             </div>
 
@@ -218,7 +240,10 @@ export function InterviewForm({
           {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
 
           <div className="flex items-center gap-3">
-            <Button type="submit" disabled={form.formState.isSubmitting || noCandidates || noJobDescriptions}>
+            <Button
+              type="submit"
+              disabled={form.formState.isSubmitting || noCandidates || noJobDescriptions || noInterviewers}
+            >
               {form.formState.isSubmitting ? "Saving..." : submitLabel}
             </Button>
             {mode === "create" ? (

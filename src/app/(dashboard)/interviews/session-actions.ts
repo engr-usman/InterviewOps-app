@@ -1,12 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { DifficultyLevel, QuestionType, Recommendation } from "@prisma/client";
+import { DifficultyLevel, QuestionType, Recommendation, ReportType } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
 
 import { getServerAuthSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { requireOrgPermission } from "@/server/services/access";
+import { generateAndUpsertInterviewReport } from "@/server/reports/report-service";
 import {
   saveQuestionEvaluationSchema,
   saveScorecardSchema,
@@ -380,6 +381,19 @@ export async function completeInterviewAction(interviewId: string): Promise<Acti
         });
 
     if (updated.count === 0) return { ok: false, error: "Interview not found." };
+
+    try {
+      await generateAndUpsertInterviewReport({
+        interviewId,
+        organizationId: ctx.organization.id,
+        userId: session.user.id,
+        type: ReportType.FULL,
+        force: false,
+      });
+      revalidatePath("/reports");
+    } catch (error) {
+      console.error(`[completeInterviewAction] Failed to auto-generate report for interview ${interviewId}:`, error);
+    }
 
     revalidatePath(`/interviews/${interviewId}/session`);
     revalidatePath(`/interviews/${interviewId}`);

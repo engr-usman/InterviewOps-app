@@ -1,10 +1,10 @@
-import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
 import { redirect } from "next/navigation";
 
 import { getServerAuthSession } from "@/auth";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { SettingsNav } from "@/features/settings/settings-nav";
+import { getSettingsNavItems } from "@/features/settings/settings-nav-items";
 import { SettingsForm } from "@/features/settings/settings-form";
 import { getBooleanSetting, getNumberSetting, getStringSetting } from "@/server/services/app-settings";
 import { getOrgContextOrThrow } from "@/server/services/org-context";
@@ -16,13 +16,13 @@ export default async function SettingsPage() {
 
   const ctx = await getOrgContextOrThrow(session.user.id);
   const canManageSettings = hasPermission(ctx.role, "settings:manage") || hasPermission(ctx.role, "org:manage");
-  const canManageTeam = hasPermission(ctx.role, "team:manage");
-  const isOwner = ctx.role === "OWNER";
+  const navItems = getSettingsNavItems(ctx.role);
 
   if (!canManageSettings) {
     return (
       <div>
         <PageHeader title="Settings" description="Application configuration" />
+        <SettingsNav items={navItems} />
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">
             You do not have permission to manage settings.
@@ -59,33 +59,7 @@ export default async function SettingsPage() {
   return (
     <div>
       <PageHeader title="Settings" description="Application configuration" />
-
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Navigation</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-2">
-          <Button asChild variant="outline">
-            <Link href="/settings">General</Link>
-          </Button>
-          <Button asChild variant="outline">
-            <Link href="/settings/organization">Organization</Link>
-          </Button>
-          {isOwner ? (
-            <Button asChild variant="outline">
-              <Link href="/settings/organizations">Organization Management</Link>
-            </Button>
-          ) : null}
-          {canManageTeam ? (
-            <Button asChild variant="outline">
-              <Link href="/settings/team">Team Management</Link>
-            </Button>
-          ) : null}
-          <Button asChild variant="outline">
-            <Link href="/settings/billing">Billing</Link>
-          </Button>
-        </CardContent>
-      </Card>
+      <SettingsNav items={navItems} />
 
       <SettingsForm
         initialValues={{
